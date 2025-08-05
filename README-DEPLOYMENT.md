@@ -98,33 +98,9 @@ After successful setup:
 
 ### Client Configuration
 
-#### Linux Clients
-
-Edit the lucid service to use the cache:
-```bash
-sudo systemctl edit --full lucid.service
-```
-
-Add the environment variable:
-```
-[Service]
-Environment=LUCID_S3_PROXY=http://<cache-server-ip>:80/
-```
-
-Restart and reconnect:
-```bash
-sudo systemctl restart lucid.service
-lucid cache --off
-```
-
-#### Mac Clients
-
 Configure globally for the filespace:
 ```bash
 lucid3 config --fs <filespace.domain> --global --set \
   --ObjectScheduler.SiteCacheEndpoint http://<cache-server-ip>:80
 ```
 
-### Support
-
-For assistance, contact your LucidLink Account Manager.
