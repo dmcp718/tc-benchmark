@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# PyInstaller
+*.manifest
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+/tmp/
+
+# Generated files
+mse4.conf
+compose.yaml
+
+# Bundle archives
+*.tar.gz
+*.tar
+*.zip
+
+# Temporary bundle directory
+teamcache-bundle/
+
+# Testing directory (old bash version)
+testing/
+
+# Old/deprecated files
+README-python.md
+new.compose.example.yaml
+example.mse4.conf
+teamcache-setup.spec
+data/
+
+# License file (sensitive, should be added separately)
+varnish-enterprise.lic
+
+# System files
+.claude/

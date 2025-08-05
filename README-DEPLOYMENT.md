@@ -1,0 +1,130 @@
+# TeamCache Deployment Guide
+
+## Quick Start
+
+This bundle contains everything needed to deploy TeamCache - a high-performance caching solution for LucidLink.
+
+### Prerequisites
+
+- Ubuntu 20.04 or later (recommended)
+- Python 3.6 or later
+- Docker and Docker Compose installed
+- Root privileges (sudo)
+- Your `varnish-enterprise.lic` license file
+- Available block devices for cache storage (or use file-based storage)
+
+### Installation Steps
+
+1. **Extract the bundle**:
+   ```bash
+   sudo mkdir -p /opt/sitecache
+   cd /opt/sitecache
+   sudo tar -xzf /path/to/teamcache-bundle-*.tar.gz
+   ```
+
+2. **Add your license file**:
+   ```bash
+   # Copy your varnish-enterprise.lic to /opt/sitecache/
+   sudo cp /path/to/varnish-enterprise.lic /opt/sitecache/
+   ```
+
+3. **Run the setup**:
+   ```bash
+   sudo ./setup.sh
+   ```
+
+### What the Setup Does
+
+The interactive setup will guide you through:
+
+1. **Device Selection**: Choose which block devices to use for cache storage
+   - The tool safely identifies available devices
+   - Only unmounted devices are shown for selection
+   - Option to skip and use file-based storage
+
+2. **Formatting**: Selected devices are formatted with XFS filesystem
+   - Optimized for large file performance
+   - Mount points created under `/cache/disk*`
+   - Automatic `/etc/fstab` entries for persistence
+
+3. **Configuration**: Generates required configuration files
+   - `mse4.conf` - Storage engine configuration
+   - `compose.yaml` - Docker stack definition
+   - Service endpoint configuration
+
+4. **Service Installation**: Deploys and starts TeamCache
+   - Creates systemd service `lucid-site-cache.service`
+   - Starts Docker containers automatically
+   - Validates service health
+
+### Post-Installation
+
+After successful setup:
+
+- **Grafana Dashboard**: `http://<server-ip>:3000`
+  - Default user: `admin`
+  - Password: Set during setup
+  - Metrics and performance monitoring
+
+- **Cache Endpoint**: `http://<server-ip>:80`
+  - Configure LucidLink clients to use this endpoint
+
+- **Service Management**:
+  ```bash
+  # Check status
+  sudo systemctl status lucid-site-cache.service
+  
+  # View logs
+  sudo docker compose logs -f
+  
+  # Stop service
+  sudo systemctl stop lucid-site-cache.service
+  ```
+
+### Troubleshooting
+
+1. **Service fails to start**:
+   - Check logs: `sudo journalctl -u lucid-site-cache.service -n 100`
+   - Verify Docker is running: `sudo systemctl status docker`
+   - Check license file exists: `ls -la /opt/sitecache/varnish-enterprise.lic`
+
+2. **No devices available**:
+   - The setup will offer file-based storage as an alternative
+   - You can add block devices later and re-run the setup
+
+3. **Grafana shows "No data"**:
+   - Wait 1-2 minutes for metrics to populate
+   - Check Prometheus is scraping: `curl http://localhost:9090/metrics`
+
+### Client Configuration
+
+#### Linux Clients
+
+Edit the lucid service to use the cache:
+```bash
+sudo systemctl edit --full lucid.service
+```
+
+Add the environment variable:
+```
+[Service]
+Environment=LUCID_S3_PROXY=http://<cache-server-ip>:80/
+```
+
+Restart and reconnect:
+```bash
+sudo systemctl restart lucid.service
+lucid cache --off
+```
+
+#### Mac Clients
+
+Configure globally for the filespace:
+```bash
+lucid3 config --fs <filespace.domain> --global --set \
+  --ObjectScheduler.SiteCacheEndpoint http://<cache-server-ip>:80
+```
+
+### Support
+
+For assistance, contact your LucidLink Account Manager.

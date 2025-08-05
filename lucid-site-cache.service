@@ -1,0 +1,15 @@
+[Unit]
+Description=LucidLink Site Cache Docker Compose Service
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=true
+WorkingDirectory=/opt/sitecache
+ExecStart=/usr/bin/env docker compose up 
+ExecStop=/usr/bin/env docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
