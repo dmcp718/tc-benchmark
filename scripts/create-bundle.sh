@@ -22,7 +22,7 @@ cp teamcache-setup.py "$BUNDLE_DIR/"
 # Copy required files and directories
 cp -r conf "$BUNDLE_DIR/"
 cp entrypoint.sh "$BUNDLE_DIR/"
-cp lucid-site-cache.service "$BUNDLE_DIR/"
+cp teamcache.service "$BUNDLE_DIR/"
 cp README-DEPLOYMENT.md "$BUNDLE_DIR/README.md"
 
 # Create requirements file
@@ -94,7 +94,7 @@ echo "Size: $(ls -lh $TARBALL | awk '{print $5}')"
 echo ""
 echo "To deploy:"
 echo "  1. Copy $TARBALL to target system"
-echo "  2. Create directory: mkdir -p /opt/sitecache"
-echo "  3. Extract: cd /opt/sitecache && tar -xzf /path/to/$TARBALL"
+echo "  2. Create directory: mkdir -p /opt/teamcache"
+echo "  3. Extract: cd /opt/teamcache && tar -xzf /path/to/$TARBALL"
 echo "  4. Add your varnish-enterprise.lic file"
 echo "  5. Run: sudo ./setup.sh"

@@ -22,7 +22,7 @@ def main():
     # Check if we're in the right directory
     if not Path("teamcache-setup.py").exists():
         print(f"{RED}Error: teamcache-setup.py not found in current directory{NC}")
-        print("Please run this script from the /opt/sitecache directory")
+        print("Please run this script from the /opt/teamcache directory")
         sys.exit(1)
     
     # Check for PyInstaller
@@ -51,7 +51,7 @@ def main():
         # Add data files
         "--add-data", "conf:conf",
         "--add-data", "entrypoint.sh:.",
-        "--add-data", "lucid-site-cache.service:.",
+        "--add-data", "teamcache.service:.",
         # Hidden imports for Rich
         "--hidden-import", "rich",
         "--hidden-import", "rich.console",
@@ -109,7 +109,7 @@ def main():
         
         # Copy required directories and files
         shutil.copytree("conf", deploy_dir / "conf")
-        for file in ["entrypoint.sh", "lucid-site-cache.service"]:
+        for file in ["entrypoint.sh", "teamcache.service"]:
             if Path(file).exists():
                 shutil.copy2(file, deploy_dir)
         
@@ -129,7 +129,7 @@ Required files:
 - varnish-enterprise.lic (you must provide this)
 - conf/ directory (included)
 - entrypoint.sh (included)
-- lucid-site-cache.service (included)
+- teamcache.service (included)
 
 The setup will:
 - Format selected block devices with XFS

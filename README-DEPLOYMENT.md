@@ -17,15 +17,15 @@ This bundle contains everything needed to deploy TeamCache - a high-performance 
 
 1. **Extract the bundle**:
    ```bash
-   sudo mkdir -p /opt/sitecache
-   cd /opt/sitecache
+   sudo mkdir -p /opt/teamcache
+   cd /opt/teamcache
    sudo tar -xzf /path/to/teamcache-bundle-*.tar.gz
    ```
 
 2. **Add your license file**:
    ```bash
-   # Copy your varnish-enterprise.lic to /opt/sitecache/
-   sudo cp /path/to/varnish-enterprise.lic /opt/sitecache/
+   # Copy your varnish-enterprise.lic to /opt/teamcache/
+   sudo cp /path/to/varnish-enterprise.lic /opt/teamcache/
    ```
 
 3. **Run the setup**:
@@ -53,7 +53,7 @@ The interactive setup will guide you through:
    - Service endpoint configuration
 
 4. **Service Installation**: Deploys and starts TeamCache
-   - Creates systemd service `lucid-site-cache.service`
+   - Creates systemd service `teamcache.service`
    - Starts Docker containers automatically
    - Validates service health
 
@@ -72,21 +72,21 @@ After successful setup:
 - **Service Management**:
   ```bash
   # Check status
-  sudo systemctl status lucid-site-cache.service
+  sudo systemctl status teamcache.service
   
   # View logs
   sudo docker compose logs -f
   
   # Stop service
-  sudo systemctl stop lucid-site-cache.service
+  sudo systemctl stop teamcache.service
   ```
 
 ### Troubleshooting
 
 1. **Service fails to start**:
-   - Check logs: `sudo journalctl -u lucid-site-cache.service -n 100`
+   - Check logs: `sudo journalctl -u teamcache.service -n 100`
    - Verify Docker is running: `sudo systemctl status docker`
-   - Check license file exists: `ls -la /opt/sitecache/varnish-enterprise.lic`
+   - Check license file exists: `ls -la /opt/teamcache/varnish-enterprise.lic`
 
 2. **No devices available**:
    - The setup will offer file-based storage as an alternative

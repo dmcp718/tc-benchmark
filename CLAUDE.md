@@ -50,13 +50,13 @@ docker compose ps
 ### Service Management
 ```bash
 # The setup script installs a systemd service
-sudo systemctl status lucid-site-cache.service
-sudo systemctl start lucid-site-cache.service
-sudo systemctl stop lucid-site-cache.service
-sudo systemctl restart lucid-site-cache.service
+sudo systemctl status teamcache.service
+sudo systemctl start teamcache.service
+sudo systemctl stop teamcache.service
+sudo systemctl restart teamcache.service
 
 # View service logs
-journalctl -u lucid-site-cache.service -f
+journalctl -u teamcache.service -f
 
 # Common issues:
 # - "pull access denied for varnish-software/varnish-plus" = Need Docker login (see Prerequisites)
@@ -70,7 +70,7 @@ journalctl -u lucid-site-cache.service -f
 
 # Proper service check sequence:
 sleep 10  # Wait for Docker Compose to actually try pulling images
-sudo systemctl status lucid-site-cache
+sudo systemctl status teamcache
 # MUST show "Active: active (running)" - NOT "Active: failed"
 # MUST NOT show "code=exited, status=1/FAILURE"
 
@@ -140,7 +140,7 @@ The Python setup script (`teamcache-setup.py`) provides an interactive Rich-base
 - **conf/default.vcl** - Varnish VCL with AWSv4 signature support, range request handling, and dynamic backend selection
 - **conf/prometheus.yml** - Prometheus configuration targeting varnish:80 for metrics
 - **conf/grafana/provisioning/** - Grafana datasources (Prometheus, Loki, Tempo) and dashboards
-- **lucid-site-cache.service** - Systemd service definition
+- **teamcache.service** - Systemd service definition
 
 ### Generated Files (by setup script)
 - **mse4.conf** - MSE storage configuration with book/store hierarchy based on selected devices
@@ -166,14 +166,14 @@ The script uses `systemctl is-active` which is insufficient. It should use `syst
 **The script MUST check for:**
 ```bash
 # Proper service verification command:
-systemctl status lucid-site-cache
+systemctl status teamcache
 
 # Parse for BOTH conditions:
 # 1. "Active: active (running)" - NOT just "active"
 # 2. No "code=exited, status=1/FAILURE" in the output
 
 # Current bug: Script shows success even when status shows:
-# × lucid-site-cache.service - LucidLink Site Cache Docker Compose Service
+# × teamcache.service - TeamCache Docker Compose Service
 #      Active: failed (Result: exit-code)
 #      Main PID: 27571 (code=exited, status=1/FAILURE)
 ```

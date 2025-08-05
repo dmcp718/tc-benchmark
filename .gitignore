@@ -47,6 +47,7 @@ logs/
 # Generated files
 mse4.conf
 compose.yaml
+conf/grafana/grafana.ini
 
 # Bundle archives
 *.tar.gz

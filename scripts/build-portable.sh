@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 # Check if running in the correct directory
 if [ ! -f "teamcache-setup.py" ]; then
     echo -e "${RED}Error: teamcache-setup.py not found in current directory${NC}"
-    echo "Please run this script from the /opt/sitecache directory"
+    echo "Please run this script from the /opt/teamcache directory"
     exit 1
 fi
 

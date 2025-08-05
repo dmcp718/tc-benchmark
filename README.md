@@ -2,7 +2,7 @@
 
 ## Overview
 
-TeamCache (formerly LucidLink Site Cache) is a high-performance caching solution built on Varnish Plus Enterprise with MSE4 (Massive Storage Engine). This repository contains the setup tools and configuration for deploying TeamCache.
+TeamCache is a high-performance S3 proxy caching solution. This repository contains the setup tools and configuration for deploying TeamCache.
 
 ## Development Setup
 
@@ -18,19 +18,25 @@ TeamCache (formerly LucidLink Site Cache) is a high-performance caching solution
 ```
 /opt/tc-setup-app/
 ├── teamcache-setup.py      # Main interactive setup script
-├── create-bundle.sh        # Bundle creation script for deployment
+├── scripts/                # Build and deployment scripts
+│   ├── build-portable.sh   # Build portable bundle
+│   ├── build-standalone.py # PyInstaller standalone build
+│   └── create-bundle.sh    # Bundle creation for deployment
 ├── conf/                   # Configuration templates
 │   ├── default.vcl         # Varnish VCL configuration
 │   ├── prometheus.yml      # Prometheus scrape configuration
 │   └── grafana/            # Grafana dashboards and provisioning
 ├── entrypoint.sh          # Docker container entrypoint
-├── testing/               # Test scripts and tools
-└── CLAUDE.md             # AI assistant documentation
+├── teamcache.service       # SystemD service definition
+├── requirements.txt       # Python dependencies
+├── CLAUDE.md             # AI assistant documentation
+├── README.md             # This file
+└── README-DEPLOYMENT.md  # End-user deployment guide
 ```
 
 ### Running the Setup Script
 
-1. Clone the repository to `/opt/tc-setup-app/`
+1. Clone the repository to `/opt/teamcache/`
 2. Place your `varnish-enterprise.lic` file in the directory
 3. Run the setup script:
    ```bash
@@ -44,29 +50,46 @@ The setup script provides an interactive TUI that:
 - Generates configuration files (`mse4.conf`, `compose.yaml`)
 - Installs and starts the Docker Compose stack
 
-### Building a Deployment Bundle
+### Building for Deployment
 
+#### Create a Deployment Bundle
 To create a portable deployment package:
 
 ```bash
-./create-bundle.sh
+./scripts/create-bundle.sh
 ```
 
 This creates `teamcache-bundle-YYYYMMDD.tar.gz` containing all necessary files for deployment.
 
-### Testing
+#### Build Standalone Executable
+To create a single executable file (no Python required):
 
-Test scripts are available in the `testing/` directory:
-- Device detection tests
-- Password dialog tests
-- Service validation tests
+```bash
+./scripts/build-standalone.py
+```
+
+This uses PyInstaller to create a self-contained executable in the `dist/` directory.
+
+#### Build Portable Package
+For a portable package with bundled Python:
+
+```bash
+./scripts/build-portable.sh
+```
+
+### Development Workflow
+
+1. Make changes to the setup script or configuration files
+2. Test locally with: `sudo python3 teamcache-setup.py`
+3. Build deployment package: `./scripts/create-bundle.sh`
+4. Deploy bundle using instructions in `README-DEPLOYMENT.md`
 
 ### Development Notes
 
 - The setup script uses Python's `rich` library for the TUI
 - All logging goes to `/tmp/teamcache-setup-*.log`
 - Docker images are built inline to avoid Docker Hub authentication
-- The service runs as `lucid-site-cache.service` via systemd
+- The service runs as `teamcache.service` via systemd
 
 ## Manual Configuration (Legacy)
 

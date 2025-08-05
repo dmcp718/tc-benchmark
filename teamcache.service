@@ -1,12 +1,12 @@
 [Unit]
-Description=LucidLink Site Cache Docker Compose Service
+Description=TeamCache Docker Compose Service
 After=network.target docker.service
 Requires=docker.service
 
 [Service]
 Type=simple
 RemainAfterExit=true
-WorkingDirectory=/opt/sitecache
+WorkingDirectory=/opt/teamcache
 ExecStart=/usr/bin/env docker compose up 
 ExecStop=/usr/bin/env docker compose down
 TimeoutStartSec=0
