@@ -82,8 +82,82 @@ class TeamCacheSetup:
                 missing.append(cmd)
         
         if missing:
-            console.print(f"[bold #ef4444]Error: Missing required dependencies:[/bold #ef4444] {', '.join(missing)}")
-            sys.exit(1)
+            console.print(f"[bold #ef4444]Missing required dependencies:[/bold #ef4444] {', '.join(missing)}")
+            
+            # Detect the package manager
+            pkg_manager = None
+            install_cmd = None
+            packages = []
+            
+            if shutil.which('apt-get'):
+                pkg_manager = 'apt-get'
+                install_cmd = ['apt-get', 'install', '-y']
+                if 'mkfs.xfs' in missing:
+                    packages.append('xfsprogs')
+                if 'lsblk' in missing or 'blkid' in missing:
+                    packages.append('util-linux')
+            elif shutil.which('yum'):
+                pkg_manager = 'yum'
+                install_cmd = ['yum', 'install', '-y']
+                if 'mkfs.xfs' in missing:
+                    packages.append('xfsprogs')
+                if 'lsblk' in missing or 'blkid' in missing:
+                    packages.append('util-linux')
+            elif shutil.which('dnf'):
+                pkg_manager = 'dnf'
+                install_cmd = ['dnf', 'install', '-y']
+                if 'mkfs.xfs' in missing:
+                    packages.append('xfsprogs')
+                if 'lsblk' in missing or 'blkid' in missing:
+                    packages.append('util-linux')
+            
+            if pkg_manager and packages:
+                console.print(f"\n[bold #f59e0b]Would you like to install the missing packages?[/bold #f59e0b]")
+                console.print(f"Command: [#3b82f6]{pkg_manager} install {' '.join(packages)}[/#3b82f6]\n")
+                
+                if Confirm.ask("Install missing dependencies?", default=True):
+                    try:
+                        console.print(f"[bold]Installing {', '.join(packages)}...[/bold]")
+                        result = subprocess.run(
+                            install_cmd + packages,
+                            capture_output=True,
+                            text=True,
+                            check=True
+                        )
+                        console.print("[#10b981]✓ Dependencies installed successfully![/#10b981]")
+                        console.print("[#f59e0b]Continuing with setup...[/#f59e0b]\n")
+                        
+                        # Re-check dependencies after installation
+                        still_missing = []
+                        for cmd in missing:
+                            if not shutil.which(cmd):
+                                still_missing.append(cmd)
+                        
+                        if still_missing:
+                            console.print(f"[bold #ef4444]Warning: Some dependencies are still missing:[/bold #ef4444] {', '.join(still_missing)}")
+                            console.print("You may need to restart your shell or add the commands to your PATH.")
+                            sys.exit(1)
+                        
+                        return  # All good, continue with setup
+                        
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"[bold #ef4444]Failed to install dependencies:[/bold #ef4444]")
+                        console.print(f"[#ef4444]{e.stderr}[/#ef4444]")
+                        console.print("\nPlease install manually and run the setup again.")
+                        sys.exit(1)
+                else:
+                    console.print("\n[bold]Manual installation required:[/bold]")
+                    console.print(f"  [#3b82f6]sudo {pkg_manager} install {' '.join(packages)}[/#3b82f6]")
+                    console.print("\nPlease install the dependencies and run the setup again.")
+                    sys.exit(1)
+            else:
+                # No known package manager or couldn't determine packages
+                console.print("\n[bold #f59e0b]Please install the missing dependencies manually:[/bold #f59e0b]")
+                if 'mkfs.xfs' in missing:
+                    console.print("  • xfsprogs package (provides mkfs.xfs)")
+                if 'lsblk' in missing or 'blkid' in missing:
+                    console.print("  • util-linux package (provides lsblk and blkid)")
+                sys.exit(1)
     
     def get_block_devices(self) -> List[Dict]:
         """Get list of block devices with details"""
