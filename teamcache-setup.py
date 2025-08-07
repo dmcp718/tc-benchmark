@@ -742,7 +742,6 @@ services:
     build:
       dockerfile_inline: |
         FROM debian:bookworm-slim
-        COPY varnish-enterprise.lic /etc/varnish/varnish-enterprise.lic
         RUN set -ex; \\
           apt-get update; \\
           apt-get install -y curl; \\
