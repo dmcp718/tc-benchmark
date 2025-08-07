@@ -7,7 +7,7 @@ This bundle contains everything needed to deploy TeamCache - a high-performance 
 ### Prerequisites
 
 - Ubuntu 20.04 or later (recommended)
-- Python 3.6 or later
+- Python 3.6 or later (if not using standalone executable)
 - Docker and Docker Compose installed
 - Root privileges (sudo)
 - Your `varnish-enterprise.lic` license file

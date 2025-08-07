@@ -16,8 +16,16 @@ BUNDLE_DIR="teamcache-bundle"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 
-# Copy main script
-cp teamcache-setup.py "$BUNDLE_DIR/"
+# Copy main script or executable
+if [ -f "dist/teamcache-setup" ]; then
+    # PyInstaller executable exists
+    cp dist/teamcache-setup "$BUNDLE_DIR/"
+    USING_PYINSTALLER=true
+else
+    # Fall back to Python script
+    cp teamcache-setup.py "$BUNDLE_DIR/"
+    USING_PYINSTALLER=false
+fi
 
 # Copy required files and directories
 cp -r conf "$BUNDLE_DIR/"
@@ -25,13 +33,71 @@ cp entrypoint.sh "$BUNDLE_DIR/"
 cp teamcache.service "$BUNDLE_DIR/"
 cp README-DEPLOYMENT.md "$BUNDLE_DIR/README.md"
 
-# Create requirements file
-cat > "$BUNDLE_DIR/requirements.txt" << EOF
+# Only create requirements file if not using PyInstaller
+if [ "$USING_PYINSTALLER" = false ]; then
+    cat > "$BUNDLE_DIR/requirements.txt" << EOF
 rich>=13.0.0
 EOF
+fi
 
-# Create setup script
-cat > "$BUNDLE_DIR/setup.sh" << 'EOF'
+# Create setup script based on whether we're using PyInstaller
+if [ "$USING_PYINSTALLER" = true ]; then
+    # Create setup script for PyInstaller executable
+    cat > "$BUNDLE_DIR/setup.sh" << 'EOF'
+#!/bin/bash
+# TeamCache Setup Launcher
+
+set -euo pipefail
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}This script must be run as root${NC}"
+   echo "Please run: sudo ./setup.sh"
+   exit 1
+fi
+
+# Check Docker
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Docker is required but not installed${NC}"
+    echo "Please install Docker: https://docs.docker.com/engine/install/"
+    exit 1
+fi
+
+# Check Docker service is running
+if ! systemctl is-active --quiet docker; then
+    echo -e "${RED}Docker service is not running${NC}"
+    echo "Please start Docker: sudo systemctl start docker"
+    exit 1
+fi
+
+# Check Docker Compose
+if ! docker compose version &> /dev/null; then
+    echo -e "${RED}Docker Compose is required but not installed${NC}"
+    echo "Please install Docker Compose plugin for Docker"
+    exit 1
+fi
+
+# Check for license file (warning only, don't exit)
+if [ ! -f "varnish-enterprise.lic" ]; then
+    echo -e "${YELLOW}⚠ Warning: varnish-enterprise.lic not found${NC}"
+    echo "You will need to add your Varnish Enterprise license file before the service can start"
+    echo ""
+fi
+
+# Run the setup (PyInstaller executable)
+echo -e "${GREEN}Starting TeamCache Setup...${NC}"
+./teamcache-setup "$@"
+EOF
+
+else
+    # Create setup script for Python version
+    cat > "$BUNDLE_DIR/setup.sh" << 'EOF'
 #!/bin/bash
 # TeamCache Setup Launcher
 
@@ -56,6 +122,34 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# Check Docker
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Docker is required but not installed${NC}"
+    echo "Please install Docker: https://docs.docker.com/engine/install/"
+    exit 1
+fi
+
+# Check Docker service is running
+if ! systemctl is-active --quiet docker; then
+    echo -e "${RED}Docker service is not running${NC}"
+    echo "Please start Docker: sudo systemctl start docker"
+    exit 1
+fi
+
+# Check Docker Compose
+if ! docker compose version &> /dev/null; then
+    echo -e "${RED}Docker Compose is required but not installed${NC}"
+    echo "Please install Docker Compose plugin for Docker"
+    exit 1
+fi
+
+# Check for license file (warning only, don't exit)
+if [ ! -f "varnish-enterprise.lic" ]; then
+    echo -e "${YELLOW}⚠ Warning: varnish-enterprise.lic not found${NC}"
+    echo "You will need to add your Varnish Enterprise license file before the service can start"
+    echo ""
+fi
+
 # Check if Rich is installed
 if ! python3 -c "import rich" 2>/dev/null; then
     echo -e "${YELLOW}Installing required Python packages...${NC}"
@@ -73,10 +167,12 @@ if ! python3 -c "import rich" 2>/dev/null; then
     fi
 fi
 
-# Run the setup
+# Run the setup (Python version)
 echo -e "${GREEN}Starting TeamCache Setup...${NC}"
 python3 teamcache-setup.py "$@"
 EOF
+
+fi
 
 chmod +x "$BUNDLE_DIR/setup.sh"
 
