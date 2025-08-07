@@ -11,6 +11,14 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the project root directory (parent of scripts/)
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Change to project root to ensure all paths work correctly
+cd "$PROJECT_ROOT"
+
 # Create bundle directory
 BUNDLE_DIR="teamcache-bundle"
 rm -rf "$BUNDLE_DIR"
@@ -28,10 +36,26 @@ else
 fi
 
 # Copy required files and directories
+echo "Copying files..."
+
+# Check and copy each required file
+for file in conf entrypoint.sh teamcache.service README-DEPLOYMENT.md; do
+    if [ ! -e "$file" ]; then
+        echo -e "${RED}Error: Required file '$file' not found!${NC}"
+        echo "Make sure you're running this script from the project root or use:"
+        echo "  cd /opt/tc-setup-app && ./scripts/create-bundle.sh"
+        exit 1
+    fi
+done
+
 cp -r conf "$BUNDLE_DIR/"
+echo "  ✓ Copied conf/"
 cp entrypoint.sh "$BUNDLE_DIR/"
+echo "  ✓ Copied entrypoint.sh"
 cp teamcache.service "$BUNDLE_DIR/"
+echo "  ✓ Copied teamcache.service"
 cp README-DEPLOYMENT.md "$BUNDLE_DIR/README.md"
+echo "  ✓ Copied README-DEPLOYMENT.md as README.md"
 
 # Only create requirements file if not using PyInstaller
 if [ "$USING_PYINSTALLER" = false ]; then
