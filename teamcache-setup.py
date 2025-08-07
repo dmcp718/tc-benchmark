@@ -77,7 +77,7 @@ class TeamCacheSetup:
     def check_dependencies(self):
         """Check for required system dependencies"""
         missing = []
-        for cmd in ['lsblk', 'mkfs.xfs', 'blkid', 'systemctl']:
+        for cmd in ['lsblk', 'mkfs.xfs', 'blkid', 'systemctl', 'docker']:
             if not shutil.which(cmd):
                 missing.append(cmd)
         
@@ -739,9 +739,18 @@ scrape_configs:
 
 services:
   mse4_check:
-    image: quay.io/varnish-software/varnish-plus:6.0.13r15
+    build:
+      dockerfile_inline: |
+        FROM debian:bookworm-slim
+        COPY varnish-enterprise.lic /etc/varnish/varnish-enterprise.lic
+        RUN set -ex; \\
+          apt-get update; \\
+          apt-get install -y curl; \\
+          curl -s https://packagecloud.io/install/repositories/varnishplus/60-enterprise/script.deb.sh | bash; \\
+          apt-get install -y varnish-plus
     volumes:
       - ./mse4.conf:/etc/varnish/mse4.conf
+      - ./varnish-enterprise.lic:/etc/varnish/varnish-enterprise.lic
     entrypoint: []
     user: root
     command: mkfs.mse4 check-config -c /etc/varnish/mse4.conf
@@ -878,8 +887,52 @@ volumes:
         logger.info(f"Generated compose.yaml at {config_path}")
         return True
     
+    def check_docker(self) -> bool:
+        """Check if Docker and Docker Compose are available and running"""
+        # Check Docker command
+        if not shutil.which('docker'):
+            console.print("[bold #ef4444]Error: Docker is not installed[/bold #ef4444]")
+            console.print("Please install Docker: https://docs.docker.com/engine/install/")
+            return False
+        
+        # Check if Docker daemon is running
+        try:
+            result = subprocess.run(
+                ['systemctl', 'is-active', 'docker'],
+                capture_output=True, text=True
+            )
+            if result.stdout.strip() != 'active':
+                console.print("[bold #ef4444]Error: Docker service is not running[/bold #ef4444]")
+                console.print("Please start Docker: [#3b82f6]sudo systemctl start docker[/#3b82f6]")
+                return False
+        except subprocess.CalledProcessError:
+            console.print("[bold #ef4444]Error: Could not check Docker service status[/bold #ef4444]")
+            return False
+        
+        # Check Docker Compose
+        try:
+            result = subprocess.run(
+                ['docker', 'compose', 'version'],
+                capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                console.print("[bold #ef4444]Error: Docker Compose is not installed[/bold #ef4444]")
+                console.print("Please install Docker Compose plugin for Docker")
+                return False
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            console.print("[bold #ef4444]Error: Docker Compose is not available[/bold #ef4444]")
+            console.print("Please install Docker Compose plugin")
+            return False
+        
+        return True
+    
     def install_systemd_service(self) -> bool:
         """Install and start the systemd service"""
+        # Check Docker before proceeding
+        if not self.check_docker():
+            console.print("\n[bold #ef4444]Cannot install service without Docker[/bold #ef4444]")
+            return False
+        
         service_path = self.script_dir / "teamcache.service"
         
         if not service_path.exists():
