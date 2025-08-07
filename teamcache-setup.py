@@ -285,9 +285,121 @@ class TeamCacheSetup:
             except (ValueError, IndexError) as e:
                 console.print(f"[#ef4444]Invalid selection: {e}[/#ef4444]")
     
+    def check_mounted_devices(self, devices: List[Dict]) -> List[Dict]:
+        """Check if any selected devices are currently mounted"""
+        mounted_devices = []
+        
+        for device in devices:
+            # Check if device is mounted
+            result = subprocess.run(
+                ['mount'],
+                capture_output=True, text=True
+            )
+            
+            if device['path'] in result.stdout:
+                # Get mount point
+                for line in result.stdout.split('\n'):
+                    if device['path'] in line:
+                        parts = line.split(' on ')
+                        if len(parts) >= 2:
+                            mount_point = parts[1].split(' type ')[0]
+                            device['mount_point'] = mount_point
+                            mounted_devices.append(device)
+                            break
+        
+        return mounted_devices
+    
+    def handle_mounted_devices(self, mounted_devices: List[Dict]) -> bool:
+        """Handle mounted devices - offer to unmount or abort"""
+        if not mounted_devices:
+            return True
+            
+        console.print("\n[bold #f59e0b]⚠ Mounted Devices Detected[/bold #f59e0b]\n")
+        console.print("The following selected devices are currently mounted:\n")
+        
+        for device in mounted_devices:
+            mount_point = device.get('mount_point', 'unknown')
+            console.print(f"  • {device['path']} mounted at [#3b82f6]{mount_point}[/#3b82f6]")
+        
+        console.print("\n[bold]Options:[/bold]")
+        console.print("  1. Automatically unmount these devices")
+        console.print("  2. Manually unmount and retry")
+        console.print("  3. Cancel operation")
+        
+        choice = Prompt.ask("\nSelect option", choices=["1", "2", "3"], default="3")
+        
+        if choice == "1":
+            # Try to unmount automatically
+            console.print("\n[bold]Unmounting devices...[/bold]")
+            
+            # First, stop the teamcache service if it's using these mounts
+            if any('/cache/disk' in d.get('mount_point', '') for d in mounted_devices):
+                try:
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', 'teamcache.service'],
+                        capture_output=True, text=True
+                    )
+                    if result.stdout.strip() == 'active':
+                        console.print("  • Stopping teamcache service...")
+                        subprocess.run(['systemctl', 'stop', 'teamcache.service'], check=True)
+                        console.print("    [#10b981]✓[/#10b981] Service stopped")
+                        time.sleep(2)  # Give time for processes to release
+                except:
+                    pass
+            
+            success = True
+            for device in mounted_devices:
+                try:
+                    mount_point = device.get('mount_point', '')
+                    if mount_point:
+                        console.print(f"  • Unmounting {mount_point}...")
+                        subprocess.run(['umount', mount_point], check=True, capture_output=True)
+                        console.print(f"    [#10b981]✓[/#10b981] Unmounted successfully")
+                except subprocess.CalledProcessError as e:
+                    console.print(f"    [#ef4444]✗[/#ef4444] Failed to unmount: {e}")
+                    success = False
+            
+            if success:
+                console.print("\n[#10b981]All devices unmounted successfully![/#10b981]")
+                return True
+            else:
+                console.print("\n[#ef4444]Some devices could not be unmounted.[/#ef4444]")
+                console.print("Please unmount manually and retry.")
+                return False
+                
+        elif choice == "2":
+            console.print("\n[bold]Manual unmount required:[/bold]")
+            console.print("\nRun these commands to unmount:")
+            
+            if any('/cache/disk' in d.get('mount_point', '') for d in mounted_devices):
+                console.print("  [#3b82f6]sudo systemctl stop teamcache[/#3b82f6]")
+            
+            for device in mounted_devices:
+                mount_point = device.get('mount_point', '')
+                if mount_point:
+                    console.print(f"  [#3b82f6]sudo umount {mount_point}[/#3b82f6]")
+            
+            console.print("\nThen run the setup again.")
+            return False
+        else:
+            console.print("\n[#ef4444]Operation cancelled.[/#ef4444]")
+            return False
+    
     def confirm_device_selection(self, devices: List[Dict]) -> bool:
         """Show confirmation dialog for device selection"""
         console.print("\n")
+        
+        # Check for mounted devices first
+        mounted_devices = self.check_mounted_devices(devices)
+        if mounted_devices:
+            if not self.handle_mounted_devices(mounted_devices):
+                return False
+            
+            # Re-check after unmount attempt
+            mounted_devices = self.check_mounted_devices(devices)
+            if mounted_devices:
+                console.print("\n[#ef4444]Error: Some devices are still mounted.[/#ef4444]")
+                return False
         
         # Create device list content
         device_list = "Selected devices for formatting:\n\n"
