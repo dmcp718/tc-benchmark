@@ -55,7 +55,9 @@ The setup script provides an interactive TUI that:
 ```bash
 ./scripts/create-bundle.sh
 ```
-Creates `teamcache-bundle-YYYYMMDD.tar.gz` for deployment. Requires Python on target system.
+Creates `teamcache-bundle-YYYYMMDD.tar.gz` - a complete deployment package with setup script.
+- **Deploy with**: Extract and run `./setup.sh`
+- **Requires**: Python 3.6+ on target system (or use standalone option below)
 
 #### Advanced Options
 <details>
@@ -64,11 +66,15 @@ Creates `teamcache-bundle-YYYYMMDD.tar.gz` for deployment. Requires Python on ta
 **Create Bundle with Standalone Executable** (no Python required on target):
 ```bash
 # Step 1: Build standalone executable (one-time setup)
-./scripts/build-standalone.py  # Creates dist/teamcache-setup
+./scripts/build-standalone.py  # Creates dist/teamcache-setup executable
+                                # Also creates teamcache-deploy.tar.gz (ignore this)
 
 # Step 2: Create deployment bundle (includes the executable)
-./scripts/create-bundle.sh      # Automatically detects and includes executable
+./scripts/create-bundle.sh      # Creates teamcache-bundle-YYYYMMDD.tar.gz
+                                # Now includes executable instead of Python script
 ```
+
+**Use teamcache-bundle-*.tar.gz for deployment** (not teamcache-deploy.tar.gz).
 
 After Step 1, all future bundles will include the standalone executable instead of the Python script, making them ~31MB but requiring no Python installation on target systems.
 
