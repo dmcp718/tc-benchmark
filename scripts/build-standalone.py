@@ -30,7 +30,20 @@ def main():
         import PyInstaller
     except ImportError:
         print(f"{YELLOW}PyInstaller not found. Installing...{NC}")
-        subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
+        # Try with --break-system-packages flag for modern Python (PEP 668)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "--break-system-packages", "pyinstaller"], check=True)
+        except subprocess.CalledProcessError:
+            # Fallback to without flag for older Python versions
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
+            except subprocess.CalledProcessError:
+                print(f"{RED}Failed to install PyInstaller.{NC}")
+                print("Please install manually with one of these commands:")
+                print("  sudo apt install python3-pyinstaller  # For system package")
+                print("  pip install --break-system-packages pyinstaller  # Override protection")
+                print("  pipx install pyinstaller  # Using pipx")
+                sys.exit(1)
     
     # Clean previous builds
     print("Cleaning previous builds...")

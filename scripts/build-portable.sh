@@ -21,7 +21,18 @@ fi
 # Check if pyinstaller is installed
 if ! command -v pyinstaller &> /dev/null; then
     echo -e "${YELLOW}PyInstaller not found. Installing...${NC}"
-    pip3 install pyinstaller
+    # Try with --break-system-packages flag for modern Python (PEP 668)
+    if ! pip3 install --break-system-packages pyinstaller 2>/dev/null; then
+        # Fallback to without flag for older Python versions
+        if ! pip3 install pyinstaller 2>/dev/null; then
+            echo -e "${RED}Failed to install PyInstaller.${NC}"
+            echo "Please install manually with one of these commands:"
+            echo "  sudo apt install python3-pyinstaller  # For system package"
+            echo "  pip3 install --break-system-packages pyinstaller  # Override protection"
+            echo "  pipx install pyinstaller  # Using pipx"
+            exit 1
+        fi
+    fi
 fi
 
 # Clean previous builds
