@@ -83,6 +83,13 @@ After successful setup:
 
 ### Troubleshooting
 
+**IMPORTANT**: After setup completes, always verify the service is actually running:
+```bash
+sleep 10  # Wait for Docker to pull/build images
+sudo systemctl status teamcache.service
+# Should show "Active: active (running)" not "failed"
+```
+
 1. **Service fails to start**:
    - Check logs: `sudo journalctl -u teamcache.service -n 100`
    - Verify Docker is running: `sudo systemctl status docker`

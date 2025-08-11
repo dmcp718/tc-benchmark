@@ -36,7 +36,7 @@ TeamCache is a high-performance S3 proxy caching solution. This repository conta
 
 ### Running the Setup Script
 
-1. Clone the repository to `/opt/teamcache/`
+1. Clone the repository to `/opt/tc-setup-app/`
 2. Place your `varnish-enterprise.lic` file in the directory
 3. Run the setup script:
    ```bash
@@ -52,30 +52,23 @@ The setup script provides an interactive TUI that:
 
 ### Building for Deployment
 
-#### Create a Deployment Bundle
-To create a portable deployment package:
-
+#### Standard Method (Recommended)
 ```bash
 ./scripts/create-bundle.sh
 ```
+Creates `teamcache-bundle-YYYYMMDD.tar.gz` for deployment. Requires Python on target system.
 
-This creates `teamcache-bundle-YYYYMMDD.tar.gz` containing all necessary files for deployment.
+#### Advanced Options
+<details>
+<summary>For systems without Python (click to expand)</summary>
 
-#### Build Standalone Executable
-To create a single executable file (no Python required):
-
+**Build Standalone Executable** (no Python required on target):
 ```bash
-./scripts/build-standalone.py
+./scripts/build-standalone.py  # Creates dist/teamcache-setup
+./scripts/create-bundle.sh      # Bundle will include executable
 ```
-
-This uses PyInstaller to create a self-contained executable in the `dist/` directory.
-
-#### Build Portable Package
-For a portable package with bundled Python:
-
-```bash
-./scripts/build-portable.sh
-```
+This creates a larger bundle (~31MB) that doesn't require Python.
+</details>
 
 ### Development Workflow
 
@@ -99,61 +92,31 @@ For manual setup without the interactive script, follow these steps:
    ```
    env: {
        books = ( {
-           id = "book";
-           filename = "/cache/disk1/book";
-           size = "512M";
+           id = "book1";
+           filename = "/var/lib/mse/disk1/book";
+           size = "8G";
            stores = ( {
-               id = "store";
-               filename = "/cache/disk1/store";
-               size = "1G";
+               id = "store1";
+               filename = "/var/lib/mse/disk1/store";
+               size = "905G";  # (disk_size - 8G) * 0.98
            } );
        } );
    };
    ```
 
-2. Configure Grafana credentials in `conf/grafana/grafana.ini`
+2. The setup script will prompt for Grafana admin password
 3. Run Docker Compose:
    ```bash
    docker compose up -d
    ```
 
-## Configuring Lucid Clients
+## Configuring LucidLink Clients
 
-### For Linux Users
+Configure all clients to use the cache:
 
-Once our Clients are connected to the Lucid Filespace, we simply want to reroute them to go to our Site Cache first, and disable the local LucidLink Cache. 
-
-We can do so by first running `sudo systemctl edit --full lucid.service` and editing to add a `LUCID_S3_PROXY` variable like so:
-
-```
-[Unit]
-Description=lucid
-Wants=network-online.target
-After=network.target network-online.target
-
-[Service]
-Environment=LUCID_S3_PROXY=http://<IP_of_the_site_cache>:80/
-ExecStart=/usr/local/bin/lucid --instance 2000 daemon
-#PrivateTmp=true
-User=root
-Group=root
-
-[Install]
-WantedBy=multi-user.target
+```bash
+lucid3 config --fs <filespace.domain> --global --set \
+  --ObjectScheduler.SiteCacheEndpoint http://<cache-server-ip>:80
 ```
 
-After that we will need to restart the `lucid.service` with `sudo systemctl restart lucid.service`, reconnect our filespace, and turn off the LucidLink cache with `lucid --instance <your_instance_ID> cache --off`.
-
-### For Mac Users
-
-To connect Mac users to the Site Cache, we need the users to install the provided `.pkg` file. 
-
-Once installed, the filespace Admin needs to run:
-
-```
-lucid3 config  --fs <name_of_filespace.domain> --global --set --ObjectScheduler.SiteCacheEndpoint http://<IP_of_your_site_cache>:80
-```
-
-You will then be promted for your Admin password. Note, using `--global` will make all users connecting to the filespace use the Site Cache. Users should reconnect to their filespace once this has been made, and they will pull from the Site Cache.
-
-If you have further questions please reach out to your LucidLink Account Manager.
+Clients should reconnect to their filespace after this configuration.
