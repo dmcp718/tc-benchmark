@@ -46,7 +46,13 @@ console = Console()
 
 class TeamCacheSetup:
     def __init__(self):
-        self.script_dir = Path(__file__).parent.absolute()
+        # Handle PyInstaller bundle vs regular Python script
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # Running as PyInstaller bundle - files are extracted to _MEIPASS
+            self.script_dir = Path(sys._MEIPASS)
+        else:
+            # Running as normal Python script
+            self.script_dir = Path(__file__).parent.absolute()
         self.selected_devices = []
         self.mount_points = []
         self.grafana_password = ""
