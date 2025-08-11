@@ -58,6 +58,7 @@ The setup script provides an interactive TUI that:
 Creates `teamcache-bundle-YYYYMMDD.tar.gz` - a complete deployment package with setup script.
 - **Deploy with**: Extract and run `./setup.sh`
 - **Requires**: Python 3.6+ on target system (or use standalone option below)
+- **Full deployment instructions**: See `README-DEPLOYMENT.md` for detailed steps
 
 #### Advanced Options
 <details>
