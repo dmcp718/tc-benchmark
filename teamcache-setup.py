@@ -1326,21 +1326,29 @@ This tool will help you:
             console.print("[#f59e0b]Setup cancelled by user.[/#f59e0b]")
             return
         
-        # Check for license file
-        license_path = self.script_dir / "varnish-enterprise.lic"
-        if not license_path.exists():
+        # Check for license file - try current directory first (for PyInstaller compatibility)
+        cwd_license = Path.cwd() / "varnish-enterprise.lic"
+        script_license = self.script_dir / "varnish-enterprise.lic"
+        
+        license_found = False
+        if cwd_license.exists():
+            console.print(f"[#10b981]✓[/#10b981] Found license file at: {cwd_license}\n")
+            license_found = True
+        elif script_license.exists():
+            console.print(f"[#10b981]✓[/#10b981] Found license file at: {script_license}\n")
+            license_found = True
+            
+        if not license_found:
             console.print("\n[bold #f59e0b]⚠ Varnish Enterprise License Required[/bold #f59e0b]\n")
-            console.print("The file [#3b82f6]varnish-enterprise.lic[/#3b82f6] was not found in the current directory.")
+            console.print("The file [#3b82f6]varnish-enterprise.lic[/#3b82f6] was not found.")
             console.print("Please obtain your license file from your LucidLink Account Manager")
-            console.print("and place it in: [#93bbfc]/opt/teamcache/varnish-enterprise.lic[/#93bbfc]\n")
+            console.print("and place it in the current directory: [#93bbfc]./varnish-enterprise.lic[/#93bbfc]\n")
             
             if not Confirm.ask("Do you want to continue without the license file?", default=False):
                 console.print("\n[#ef4444]Setup cancelled. Please add the license file and run again.[/#ef4444]")
                 return
             else:
                 console.print("\n[#f59e0b]Warning: The service will fail to start without a valid license file.[/#f59e0b]\n")
-        else:
-            console.print("[#10b981]✓[/#10b981] Found Varnish Enterprise license file\n")
         
         # Generate configurations
         console.print(Panel(
