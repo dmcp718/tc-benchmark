@@ -72,3 +72,6 @@ varnish-enterprise.lic
 
 # System files
 .claude/
+
+# AI Assistant Instructions - NEVER COMMIT
+CLAUDE.md

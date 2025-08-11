@@ -29,7 +29,6 @@ TeamCache is a high-performance S3 proxy caching solution. This repository conta
 ├── entrypoint.sh          # Docker container entrypoint
 ├── teamcache.service       # SystemD service definition
 ├── requirements.txt       # Python dependencies
-├── CLAUDE.md             # AI assistant documentation
 ├── README.md             # This file
 └── README-DEPLOYMENT.md  # End-user deployment guide
 ```
