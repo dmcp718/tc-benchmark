@@ -1655,7 +1655,126 @@ volumes:
         return True
     
     def install_systemd_service(self) -> bool:
-        """Install and start the systemd service"""
+        """Install and start the systemd service(s) based on deployment mode"""
+
+        if self.deployment_mode == "hybrid":
+            return self.install_hybrid_services()
+        else:
+            return self.install_docker_service()
+
+    def install_hybrid_services(self) -> bool:
+        """Install native Varnish service and optionally monitoring service"""
+        try:
+            console.print("\n[bold]Installing TeamCache Services...[/bold]\n")
+
+            # Install native Varnish service (teamcache.service)
+            console.print("[bold]1. Installing Varnish service (teamcache.service)[/bold]")
+
+            # Service file was already generated, now install it
+            service_path = Path('/etc/systemd/system/teamcache.service')
+            if not service_path.exists():
+                console.print("[#ef4444]  Error: teamcache.service not found at /etc/systemd/system/[/#ef4444]")
+                return False
+
+            # Reload systemd
+            subprocess.run(['systemctl', 'daemon-reload'], check=True)
+            console.print("  ✓ Reloaded systemd daemon")
+
+            # Enable and start Varnish service
+            subprocess.run(['systemctl', 'enable', 'teamcache.service'], check=True)
+            console.print("  ✓ Enabled teamcache.service")
+
+            subprocess.run(['systemctl', 'start', 'teamcache.service'], check=True)
+            console.print("  ✓ Started teamcache.service")
+
+            # Verify Varnish is running
+            time.sleep(2)
+            result = subprocess.run(
+                ['systemctl', 'is-active', 'teamcache.service'],
+                capture_output=True, text=True
+            )
+
+            if result.stdout.strip() == 'active':
+                console.print("  [#10b981]✓ Varnish is running[/#10b981]\n")
+            else:
+                console.print("  [#ef4444]✗ Varnish failed to start[/#ef4444]")
+                console.print("  Run: sudo systemctl status teamcache.service\n")
+                return False
+
+            # Install monitoring stack if enabled
+            if self.enable_monitoring:
+                # Check Docker for monitoring stack
+                if not self.check_docker():
+                    console.print("[#f59e0b]Warning: Docker not available for monitoring stack[/#f59e0b]")
+                    console.print("[#f59e0b]Varnish is running, but monitoring will not be deployed[/#f59e0b]\n")
+                    return True
+
+                console.print("[bold]2. Installing Monitoring Stack (tc-grafana.service)[/bold]")
+
+                # Create /opt/teamcache for monitoring files
+                install_dir = Path('/opt/teamcache')
+                install_dir.mkdir(parents=True, exist_ok=True)
+                console.print(f"  ✓ Created {install_dir}")
+
+                # Copy monitoring files
+                files_to_copy = ['monitoring-compose.yaml']
+                for filename in files_to_copy:
+                    src = self.script_dir / filename
+                    if src.exists():
+                        shutil.copy2(src, install_dir / filename)
+                        logger.info(f"Copied {filename} to {install_dir}")
+
+                # Copy conf directory for Grafana/Prometheus
+                src_conf = self.script_dir / "conf"
+                dst_conf = install_dir / "conf"
+                if src_conf.exists():
+                    if dst_conf.exists():
+                        shutil.rmtree(dst_conf)
+                    shutil.copytree(src_conf, dst_conf)
+                    logger.info(f"Copied conf/ directory to {install_dir}")
+
+                console.print(f"  ✓ Copied monitoring configuration files")
+
+                # Install tc-grafana.service
+                service_src = self.script_dir / "tc-grafana.service"
+                if service_src.exists():
+                    shutil.copy2(service_src, '/etc/systemd/system/')
+                    console.print("  ✓ Installed tc-grafana.service")
+
+                    subprocess.run(['systemctl', 'daemon-reload'], check=True)
+                    subprocess.run(['systemctl', 'enable', 'tc-grafana.service'], check=True)
+                    console.print("  ✓ Enabled tc-grafana.service")
+
+                    subprocess.run(['systemctl', 'start', 'tc-grafana.service'], check=True)
+                    console.print("  ✓ Started tc-grafana.service")
+
+                    time.sleep(2)
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', 'tc-grafana.service'],
+                        capture_output=True, text=True
+                    )
+
+                    if result.stdout.strip() == 'active':
+                        console.print("  [#10b981]✓ Monitoring stack is running[/#10b981]\n")
+                    else:
+                        console.print("  [#f59e0b]⚠ Monitoring stack failed to start[/#f59e0b]")
+                        console.print("  Run: sudo systemctl status tc-grafana.service\n")
+
+            console.print("[#10b981]✓ Installation complete![/#10b981]\n")
+            console.print(f"[bold]Access points:[/bold]")
+            console.print(f"  • TeamCache endpoint: http://{self.server_ip}:{self.varnish_port}")
+            if self.enable_monitoring:
+                console.print(f"  • Grafana Dashboard: http://{self.server_ip}:3000")
+                console.print(f"  • Prometheus: http://{self.server_ip}:9090")
+
+            return True
+
+        except Exception as e:
+            console.print(f"[#ef4444]Error installing services: {e}[/#ef4444]")
+            return False
+
+    def install_docker_service(self) -> bool:
+        """Install Docker Compose service (original behavior)"""
         # Check Docker before proceeding
         if not self.check_docker():
             console.print("\n[bold #ef4444]Cannot install service without Docker[/bold #ef4444]")
@@ -2055,7 +2174,7 @@ This tool will help you:
             else:
                 console.print("\n[#f59e0b]Warning: The service will fail to start without a valid license file.[/#f59e0b]\n")
         
-        # Generate configurations
+        # Generate configurations based on deployment mode
         console.print(Panel(
             "Generating Configuration Files\n\n"
             "[#9ca3af]Creating TeamCache deployment configuration...[/#9ca3af]",
@@ -2063,33 +2182,68 @@ This tool will help you:
             padding=(0, 2)
         ))
         console.print("")
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True
-        ) as progress:
-            task = progress.add_task("Generating configurations...", total=4)
-            
-            self.generate_mse4_config()
-            progress.update(task, advance=1, description="Generated mse4.conf")
-            time.sleep(0.3)
-            
-            self.generate_grafana_config()
-            progress.update(task, advance=1, description="Generated Grafana configuration")
-            time.sleep(0.3)
-            
-            self.generate_prometheus_config()
-            progress.update(task, advance=1, description="Generated Prometheus configuration")
-            time.sleep(0.3)
-            
-            self.generate_compose_yaml()
-            progress.update(task, advance=1, description="Generated compose.yaml")
-            time.sleep(0.3)
-        
+
+        if self.deployment_mode == "hybrid":
+            # Hybrid mode: Native Varnish + Optional Monitoring
+            steps = []
+
+            # Always generate VCL and MSE4 config
+            steps.append(("Generate default.vcl", self.generate_default_vcl))
+            steps.append(("Generate mse4.conf", self.generate_mse4_config))
+            steps.append(("Generate teamcache.service", self.generate_native_varnish_service))
+
+            # Optionally generate monitoring configs
+            if self.enable_monitoring:
+                steps.append(("Generate Grafana config", self.generate_grafana_config))
+                steps.append(("Generate Prometheus config", self.generate_prometheus_config))
+                steps.append(("Generate monitoring compose", self.generate_monitoring_compose))
+                steps.append(("Generate tc-grafana.service", self.generate_tc_grafana_service))
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True
+            ) as progress:
+                task = progress.add_task("Generating configurations...", total=len(steps))
+
+                for desc, func in steps:
+                    func()
+                    progress.update(task, advance=1, description=desc)
+                    time.sleep(0.2)
+
+            # Install Varnish natively
+            if not self.install_varnish_native():
+                console.print("[#ef4444]Failed to install Varnish[/#ef4444]")
+                return
+
+        else:
+            # Docker mode: Everything in Docker Compose
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True
+            ) as progress:
+                task = progress.add_task("Generating configurations...", total=4)
+
+                self.generate_mse4_config()
+                progress.update(task, advance=1, description="Generated mse4.conf")
+                time.sleep(0.3)
+
+                self.generate_grafana_config()
+                progress.update(task, advance=1, description="Generated Grafana configuration")
+                time.sleep(0.3)
+
+                self.generate_prometheus_config()
+                progress.update(task, advance=1, description="Generated Prometheus configuration")
+                time.sleep(0.3)
+
+                self.generate_compose_yaml()
+                progress.update(task, advance=1, description="Generated compose.yaml")
+                time.sleep(0.3)
+
         console.print("")
         console.print("[#10b981]✓ All configurations generated[/#10b981]\n")
-        
+
         # Display summary
         self.display_summary()
 
