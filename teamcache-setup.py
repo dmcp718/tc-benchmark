@@ -58,7 +58,9 @@ class TeamCacheSetup:
         self.grafana_password = ""
         self.server_ip = ""
         self.varnish_port = 80
-        
+        self.deployment_mode = "docker"  # "docker" or "hybrid"
+        self.enable_monitoring = False
+
         # Modern blue color palette - subtle and professional
         self.colors = {
             'primary': '#3b82f6',      # Medium blue (main brand color)
@@ -265,15 +267,34 @@ class TeamCacheSetup:
         # Display table without extra panel since it has its own borders
         console.print(table)
         console.print("\n")
-        
-        # Get selection
-        console.print("[bold #f59e0b]WARNING: Selected devices will be COMPLETELY ERASED![/bold #f59e0b]\n")
-        
+
+        # Ask if user wants to format or use existing
+        console.print("[bold]Device Preparation Options:[/bold]")
+        console.print("  1. Format selected devices with XFS (ERASES ALL DATA)")
+        console.print("  2. Use existing XFS-formatted devices (preserves data)\n")
+
+        format_choice = Prompt.ask(
+            "Select option",
+            choices=["1", "2"],
+            default="1"
+        )
+
+        skip_format = (format_choice == "2")
+
+        if not skip_format:
+            console.print("\n[bold #f59e0b]WARNING: Selected devices will be COMPLETELY ERASED![/bold #f59e0b]\n")
+
         while True:
-            selection = Prompt.ask(
-                "Select devices to format (comma-separated numbers, e.g., 1,3)",
-                default="1"
-            )
+            if skip_format:
+                selection = Prompt.ask(
+                    "Select existing XFS devices to use (comma-separated numbers, e.g., 1,3)",
+                    default="1"
+                )
+            else:
+                selection = Prompt.ask(
+                    "Select devices to format (comma-separated numbers, e.g., 1,3)",
+                    default="1"
+                )
             
             try:
                 indices = [int(x.strip()) - 1 for x in selection.split(',')]
@@ -281,10 +302,18 @@ class TeamCacheSetup:
                 
                 for idx in indices:
                     if 0 <= idx < len(devices):
-                        selected.append(devices[idx])
+                        device = devices[idx].copy()
+                        # If skipping format, verify device has XFS filesystem
+                        if skip_format and device.get('fstype') != 'xfs':
+                            console.print(f"[#ef4444]Error: {device['path']} does not have XFS filesystem (found: {device.get('fstype', 'none')})[/#ef4444]")
+                            console.print("[#f59e0b]Please select only XFS-formatted devices or choose option 1 to format them.[/#f59e0b]")
+                            selected = []
+                            break
+                        device['skip_format'] = skip_format
+                        selected.append(device)
                     else:
                         raise ValueError(f"Invalid device number: {idx + 1}")
-                
+
                 if selected:
                     return selected
                     
@@ -315,23 +344,62 @@ class TeamCacheSetup:
         
         return mounted_devices
     
-    def handle_mounted_devices(self, mounted_devices: List[Dict]) -> bool:
-        """Handle mounted devices - offer to unmount or abort"""
+    def handle_mounted_devices(self, mounted_devices: List[Dict], skip_format: bool = False) -> bool:
+        """Handle mounted devices - offer to unmount or reuse"""
         if not mounted_devices:
             return True
-            
+
+        # Check if devices are mounted at TeamCache locations (/cache/disk*)
+        teamcache_mounts = []
+        other_mounts = []
+
+        for device in mounted_devices:
+            mount_point = device.get('mount_point', '')
+            if mount_point.startswith('/cache/disk'):
+                teamcache_mounts.append(device)
+            else:
+                other_mounts.append(device)
+
+        # If using existing XFS and all devices are at TeamCache mount points, offer to reuse
+        if skip_format and teamcache_mounts and not other_mounts:
+            console.print("\n[bold #3b82f6]ℹ️  TeamCache Mounts Detected[/bold #3b82f6]\n")
+            console.print("The following devices are already mounted at TeamCache locations:\n")
+
+            for device in teamcache_mounts:
+                mount_point = device.get('mount_point', 'unknown')
+                console.print(f"  • {device['path']} mounted at [#3b82f6]{mount_point}[/#3b82f6]")
+
+            console.print("\n[bold]Options:[/bold]")
+            console.print("  1. Reuse existing mounts (recommended)")
+            console.print("  2. Unmount and remount")
+            console.print("  3. Cancel operation")
+
+            choice = Prompt.ask("\nSelect option", choices=["1", "2", "3"], default="1")
+
+            if choice == "1":
+                # Mark devices as already mounted - skip mounting step
+                for device in teamcache_mounts:
+                    device['already_mounted'] = True
+                console.print("\n[#10b981]✓ Will reuse existing mounts[/#10b981]")
+                return True
+            elif choice != "2":
+                console.print("\n[#ef4444]Operation cancelled.[/#ef4444]")
+                return False
+            # If choice == "2", fall through to unmount logic below
+
+        # Show standard unmount options
         console.print("\n[bold #f59e0b]⚠ Mounted Devices Detected[/bold #f59e0b]\n")
         console.print("The following selected devices are currently mounted:\n")
-        
+
         for device in mounted_devices:
             mount_point = device.get('mount_point', 'unknown')
             console.print(f"  • {device['path']} mounted at [#3b82f6]{mount_point}[/#3b82f6]")
-        
+
         console.print("\n[bold]Options:[/bold]")
         console.print("  1. Automatically unmount these devices")
         console.print("  2. Manually unmount and retry")
         console.print("  3. Cancel operation")
-        
+
         choice = Prompt.ask("\nSelect option", choices=["1", "2", "3"], default="3")
         
         if choice == "1":
@@ -394,115 +462,191 @@ class TeamCacheSetup:
     def confirm_device_selection(self, devices: List[Dict]) -> bool:
         """Show confirmation dialog for device selection"""
         console.print("\n")
-        
+
+        # Check if we're skipping format (using existing disks)
+        skip_format = devices[0].get('skip_format', False) if devices else False
+
         # Check for mounted devices first
         mounted_devices = self.check_mounted_devices(devices)
         if mounted_devices:
-            if not self.handle_mounted_devices(mounted_devices):
+            if not self.handle_mounted_devices(mounted_devices, skip_format):
                 return False
-            
-            # Re-check after unmount attempt
-            mounted_devices = self.check_mounted_devices(devices)
-            if mounted_devices:
-                console.print("\n[#ef4444]Error: Some devices are still mounted.[/#ef4444]")
-                return False
-        
+
+            # Re-check after unmount attempt (unless we're reusing existing mounts)
+            # If devices are marked as already_mounted, skip the re-check
+            if not any(d.get('already_mounted', False) for d in devices):
+                mounted_devices = self.check_mounted_devices(devices)
+                if mounted_devices:
+                    console.print("\n[#ef4444]Error: Some devices are still mounted.[/#ef4444]")
+                    return False
+
         # Create device list content
-        device_list = "Selected devices for formatting:\n\n"
+        if skip_format:
+            device_list = "Selected devices (using existing XFS formatting):\n\n"
+        else:
+            device_list = "Selected devices for formatting:\n\n"
+
         for device in devices:
-            device_list += f"  • {device['path']} [#9ca3af](Size: {device['size']}, Model: {device['model']})[/#9ca3af]\n"
-        
+            fs_info = f"Current FS: {device.get('fstype', 'none')}" if skip_format else f"Size: {device['size']}, Model: {device['model']}"
+            device_list += f"  • {device['path']} [#9ca3af]({fs_info})[/#9ca3af]\n"
+
         console.print(Panel(
             device_list,
             title="Device Selection",
             border_style="#9ca3af",
             padding=(1, 2)
         ))
-        
+
         console.print("\n")
-        
-        warning_panel = Panel(
-            "[bold #ef4444]⚠️  WARNING ⚠️[/bold #ef4444]\n\n"
-            "ALL DATA ON THE SELECTED DEVICES WILL BE PERMANENTLY DESTROYED!\n\n"
-            "[#9ca3af]This action cannot be undone. Please ensure you have selected the correct devices.[/#9ca3af]",
-            border_style="#ef4444",
-            title="Data Loss Warning",
-            padding=(1, 2)
-        )
-        console.print(warning_panel)
-        
-        console.print("\n")
-        
-        return Confirm.ask("[bold]Are you absolutely sure you want to continue?[/bold]", default=False)
+
+        if skip_format:
+            # Just confirm we're using existing disks
+            info_panel = Panel(
+                "[bold #3b82f6]ℹ️  Using Existing Disks[/bold #3b82f6]\n\n"
+                "Selected devices will be mounted and used with their existing XFS filesystems.\n"
+                "No data will be erased.\n\n"
+                "[#9ca3af]The devices will be mounted and added to /etc/fstab.[/#9ca3af]",
+                border_style="#3b82f6",
+                title="Information",
+                padding=(1, 2)
+            )
+            console.print(info_panel)
+            console.print("\n")
+            return Confirm.ask("[bold]Continue with these devices?[/bold]", default=True)
+        else:
+            # Show warning for formatting
+            warning_panel = Panel(
+                "[bold #ef4444]⚠️  WARNING ⚠️[/bold #ef4444]\n\n"
+                "ALL DATA ON THE SELECTED DEVICES WILL BE PERMANENTLY DESTROYED!\n\n"
+                "[#9ca3af]This action cannot be undone. Please ensure you have selected the correct devices.[/#9ca3af]",
+                border_style="#ef4444",
+                title="Data Loss Warning",
+                padding=(1, 2)
+            )
+            console.print(warning_panel)
+
+            console.print("\n")
+
+            return Confirm.ask("[bold]Are you absolutely sure you want to continue?[/bold]", default=False)
     
     def format_devices_xfs(self, devices: List[Dict]) -> bool:
-        """Format devices with XFS filesystem"""
-        console.print("\n")
-        console.print(Panel(
-            "Formatting Devices\n\n"
-            "[#9ca3af]Creating XFS filesystems on selected devices...[/#9ca3af]",
-            border_style="#9ca3af",
-            padding=(0, 2)
-        ))
-        console.print("\n")
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console
-        ) as progress:
-            
-            task = progress.add_task("Formatting devices", total=len(devices))
-            
-            for device in devices:
-                progress.update(task, description=f"Formatting {device['path']}...")
-                
-                # Wipe existing filesystem signatures
-                logger.info(f"Wiping {device['path']}...")
-                wipe_result = subprocess.run(
-                    ['wipefs', '-a', device['path']],
-                    capture_output=True, text=True
-                )
-                
-                if wipe_result.returncode != 0:
-                    console.print(f"[#ef4444]Failed to wipe {device['path']}: {wipe_result.stderr}[/#ef4444]")
-                    return False
-                
-                # Create XFS filesystem
-                logger.info(f"Creating XFS filesystem on {device['path']}...")
-                mkfs_result = subprocess.run(
-                    ['mkfs.xfs', '-f', device['path']],
-                    capture_output=True, text=True
-                )
-                
-                if mkfs_result.returncode != 0:
-                    console.print(f"[#ef4444]Failed to format {device['path']}: {mkfs_result.stderr}[/#ef4444]")
-                    return False
-                
-                # Verify filesystem was created
-                time.sleep(1)
-                uuid_result = subprocess.run(
-                    ['blkid', '-s', 'UUID', '-o', 'value', device['path']],
-                    capture_output=True, text=True
-                )
-                
-                uuid = uuid_result.stdout.strip()
-                if not uuid:
-                    console.print(f"[#ef4444]Failed to verify filesystem on {device['path']}[/#ef4444]")
-                    return False
-                
-                device['uuid'] = uuid
-                logger.info(f"Successfully created XFS filesystem on {device['path']} with UUID={uuid}")
-                
-                progress.advance(task)
-                time.sleep(0.5)
-        
-        # Add extra newline after progress completes to separate from success message
-        console.print("")
-        console.print("[#10b981]✓ All devices formatted successfully![/#10b981]\n")
-        return True
+        """Format devices with XFS filesystem or verify existing XFS"""
+        # Check if we're skipping format
+        skip_format = devices[0].get('skip_format', False) if devices else False
+
+        if skip_format:
+            # Verify existing XFS and get UUIDs
+            console.print("\n")
+            console.print(Panel(
+                "Verifying Existing XFS Filesystems\n\n"
+                "[#9ca3af]Checking selected devices...[/#9ca3af]",
+                border_style="#9ca3af",
+                padding=(0, 2)
+            ))
+            console.print("\n")
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+
+                task = progress.add_task("Verifying devices", total=len(devices))
+
+                for device in devices:
+                    progress.update(task, description=f"Checking {device['path']}...")
+
+                    # Get UUID from existing filesystem
+                    uuid_result = subprocess.run(
+                        ['blkid', '-s', 'UUID', '-o', 'value', device['path']],
+                        capture_output=True, text=True
+                    )
+
+                    uuid = uuid_result.stdout.strip()
+                    if not uuid:
+                        console.print(f"[#ef4444]Failed to get UUID from {device['path']}[/#ef4444]")
+                        return False
+
+                    device['uuid'] = uuid
+                    logger.info(f"Using existing XFS filesystem on {device['path']} with UUID={uuid}")
+
+                    progress.advance(task)
+                    time.sleep(0.3)
+
+            console.print("")
+            console.print("[#10b981]✓ All devices verified successfully![/#10b981]\n")
+            return True
+
+        else:
+            # Format devices with XFS
+            console.print("\n")
+            console.print(Panel(
+                "Formatting Devices\n\n"
+                "[#9ca3af]Creating XFS filesystems on selected devices...[/#9ca3af]",
+                border_style="#9ca3af",
+                padding=(0, 2)
+            ))
+            console.print("\n")
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+
+                task = progress.add_task("Formatting devices", total=len(devices))
+
+                for device in devices:
+                    progress.update(task, description=f"Formatting {device['path']}...")
+
+                    # Wipe existing filesystem signatures
+                    logger.info(f"Wiping {device['path']}...")
+                    wipe_result = subprocess.run(
+                        ['wipefs', '-a', device['path']],
+                        capture_output=True, text=True
+                    )
+
+                    if wipe_result.returncode != 0:
+                        console.print(f"[#ef4444]Failed to wipe {device['path']}: {wipe_result.stderr}[/#ef4444]")
+                        return False
+
+                    # Create XFS filesystem
+                    logger.info(f"Creating XFS filesystem on {device['path']}...")
+                    mkfs_result = subprocess.run(
+                        ['mkfs.xfs', '-f', device['path']],
+                        capture_output=True, text=True
+                    )
+
+                    if mkfs_result.returncode != 0:
+                        console.print(f"[#ef4444]Failed to format {device['path']}: {mkfs_result.stderr}[/#ef4444]")
+                        return False
+
+                    # Verify filesystem was created
+                    time.sleep(1)
+                    uuid_result = subprocess.run(
+                        ['blkid', '-s', 'UUID', '-o', 'value', device['path']],
+                        capture_output=True, text=True
+                    )
+
+                    uuid = uuid_result.stdout.strip()
+                    if not uuid:
+                        console.print(f"[#ef4444]Failed to verify filesystem on {device['path']}[/#ef4444]")
+                        return False
+
+                    device['uuid'] = uuid
+                    logger.info(f"Successfully created XFS filesystem on {device['path']} with UUID={uuid}")
+
+                    progress.advance(task)
+                    time.sleep(0.5)
+
+            # Add extra newline after progress completes to separate from success message
+            console.print("")
+            console.print("[#10b981]✓ All devices formatted successfully![/#10b981]\n")
+            return True
     
     def create_mount_points(self) -> bool:
         """Create mount points and update /etc/fstab"""
@@ -519,28 +663,34 @@ class TeamCacheSetup:
         for i, device in enumerate(self.selected_devices, 1):
             mount_point = f"/cache/disk{i}"
             self.mount_points.append(mount_point)
-            
+
+            # Check if device is already mounted at this location
+            if device.get('already_mounted', False):
+                console.print(f"  [#3b82f6]✓[/#3b82f6] Reusing {device['path']} already mounted at {mount_point}")
+                logger.info(f"Reusing existing mount: {device['path']} at {mount_point}")
+                continue
+
             # Create mount point directory
             Path(mount_point).mkdir(parents=True, exist_ok=True)
             logger.info(f"Created mount point: {mount_point}")
-            
+
             # Remove any existing fstab entries for this mount point
             self.cleanup_fstab_entry(mount_point)
-            
+
             # Add to /etc/fstab
             with open('/etc/fstab', 'a') as f:
                 f.write(f"UUID={device['uuid']} {mount_point} xfs defaults,noatime 0 2\n")
             logger.info(f"Added {device['path']} to /etc/fstab")
-            
+
             # Reload systemd
             subprocess.run(['systemctl', 'daemon-reload'], capture_output=True)
-            
+
             # Mount the device
             mount_result = subprocess.run(
                 ['mount', mount_point],
                 capture_output=True, text=True
             )
-            
+
             if mount_result.returncode != 0:
                 console.print(f"[#f59e0b]Warning: Failed to mount {mount_point}[/#f59e0b]")
                 # Try direct mount as fallback
@@ -548,7 +698,7 @@ class TeamCacheSetup:
                     ['mount', device['path'], mount_point],
                     capture_output=True, text=True
                 )
-            
+
             if mount_result.returncode == 0:
                 console.print(f"  [#10b981]✓[/#10b981] Mounted {device['path']} at {mount_point}")
             else:
@@ -727,13 +877,325 @@ class TeamCacheSetup:
             console.print("[#10b981]✓ Password set successfully[/#10b981]\n")
             return True
     
+    def install_varnish_native(self) -> bool:
+        """Install Varnish Plus natively via package manager"""
+        console.print("\n")
+        console.print(Panel(
+            "Installing Varnish Enterprise\n\n"
+            "[#9ca3af]Installing varnish-plus package from packagecloud.io...[/#9ca3af]",
+            border_style="#9ca3af",
+            padding=(0, 2)
+        ))
+        console.print("\n")
+
+        try:
+            # Detect package manager
+            if shutil.which('apt-get'):
+                # Debian/Ubuntu
+                console.print("[bold]Detected Debian/Ubuntu system[/bold]")
+                commands = [
+                    (['apt-get', 'update'], "Updating package lists"),
+                    (['apt-get', 'install', '-y', 'curl', 'gnupg', 'apt-transport-https'], "Installing prerequisites"),
+                ]
+
+                # Add repository
+                console.print("  • Adding Varnish Plus repository...")
+                result = subprocess.run(
+                    'curl -s https://packagecloud.io/install/repositories/varnishplus/60-enterprise/script.deb.sh | bash',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    console.print(f"[#ef4444]Failed to add repository: {result.stderr}[/#ef4444]")
+                    return False
+                console.print("    [#10b981]✓[/#10b981] Repository added")
+
+                # Install Varnish
+                console.print("  • Installing varnish-plus...")
+                result = subprocess.run(
+                    ['apt-get', 'install', '-y', 'varnish-plus', '-o', 'Dpkg::Options::=--force-confold'],
+                    capture_output=True,
+                    text=True
+                )
+
+            elif shutil.which('dnf'):
+                # RHEL/Rocky/AlmaLinux/Fedora
+                console.print("[bold]Detected RHEL/Rocky/Fedora system[/bold]")
+
+                # Install prerequisites
+                console.print("  • Installing prerequisites...")
+                subprocess.run(
+                    ['dnf', '-y', 'install', 'curl', 'gnupg2', 'yum-utils', 'epel-release', 'libunwind', 'isa-l'],
+                    capture_output=True,
+                    text=True
+                )
+                console.print("    [#10b981]✓[/#10b981] Prerequisites installed")
+
+                # Add repository
+                console.print("  • Adding Varnish Plus repository...")
+                result = subprocess.run(
+                    'curl -s https://packagecloud.io/install/repositories/varnishplus/60-enterprise/script.rpm.sh | bash',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    console.print(f"[#ef4444]Failed to add repository: {result.stderr}[/#ef4444]")
+                    return False
+                console.print("    [#10b981]✓[/#10b981] Repository added")
+
+                # Install Varnish
+                console.print("  • Installing varnish-plus...")
+                result = subprocess.run(
+                    ['dnf', '-y', 'install', 'varnish-plus', '--allowerasing'],
+                    capture_output=True,
+                    text=True
+                )
+
+            elif shutil.which('yum'):
+                # CentOS 7
+                console.print("[bold]Detected CentOS 7 system[/bold]")
+
+                # Install prerequisites
+                console.print("  • Installing prerequisites...")
+                subprocess.run(
+                    ['yum', '-y', 'install', 'curl', 'gnupg2', 'yum-utils', 'epel-release'],
+                    capture_output=True,
+                    text=True
+                )
+                console.print("    [#10b981]✓[/#10b981] Prerequisites installed")
+
+                # Add repository
+                console.print("  • Adding Varnish Plus repository...")
+                result = subprocess.run(
+                    'curl -s https://packagecloud.io/install/repositories/varnishplus/60-enterprise/script.rpm.sh | bash',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    console.print(f"[#ef4444]Failed to add repository: {result.stderr}[/#ef4444]")
+                    return False
+                console.print("    [#10b981]✓[/#10b981] Repository added")
+
+                # Install Varnish
+                console.print("  • Installing varnish-plus...")
+                result = subprocess.run(
+                    ['yum', '-y', 'install', 'varnish-plus'],
+                    capture_output=True,
+                    text=True
+                )
+            else:
+                console.print("[#ef4444]Unsupported package manager[/#ef4444]")
+                return False
+
+            if result.returncode != 0:
+                console.print(f"[#ef4444]Failed to install varnish-plus: {result.stderr}[/#ef4444]")
+                return False
+
+            console.print("    [#10b981]✓[/#10b981] varnish-plus installed successfully")
+            console.print("\n[#10b981]✓ Varnish Enterprise installed![/#10b981]\n")
+
+            # Verify installation
+            if shutil.which('varnishd'):
+                version_result = subprocess.run(
+                    ['varnishd', '-V'],
+                    capture_output=True,
+                    text=True
+                )
+                if version_result.returncode == 0:
+                    console.print(f"[#9ca3af]{version_result.stderr.splitlines()[0]}[/#9ca3af]\n")
+
+            return True
+
+        except Exception as e:
+            console.print(f"[#ef4444]Error installing Varnish: {e}[/#ef4444]")
+            return False
+
+    def generate_default_vcl(self) -> bool:
+        """Generate default.vcl for native Varnish deployment"""
+        vcl_path = Path('/etc/varnish/default.vcl')
+        vcl_path.parent.mkdir(parents=True, exist_ok=True)
+
+        vcl_content = """vcl 4.1;
+import uri;
+import std;
+import utils;
+import goto;
+import accounting;
+import stat;
+
+backend default none;
+
+sub vcl_init {
+	accounting.create_namespace("lucid");
+}
+
+sub vcl_recv {
+	set req.url = uri.decode(req.url);
+	accounting.set_namespace("lucid");
+
+	if (req.method != "GET" &&
+		req.method != "HEAD" &&
+		req.method != "PUT" &&
+		req.method != "POST" &&
+		req.method != "TRACE" &&
+		req.method != "OPTIONS" &&
+		req.method != "DELETE" &&
+		req.method != "PATCH") {
+		return (synth(405));
+	}
+
+	if (req.url == "/metrics") {
+		return(pass);
+	}
+
+	unset req.http.x-method;
+	set req.http.x-method = req.method;
+
+	accounting.add_keys(req.method);
+
+	# Only cache GET requests
+	if (req.method != "GET") {
+		return (pass);
+	}
+
+	# Save the range and reuse it on the backend
+	# request. This because AWSv4 includes the
+	# range header in the signature, which means
+	# that it cannot be changed without re-signing
+	# the request.
+	unset req.http.x-range;
+	if (req.http.Range) {
+		set req.http.x-range = req.http.Range;
+		unset req.http.Range;
+	}
+	return (hash);
+}
+
+sub vcl_hash {
+	hash_data(req.method);
+
+	# It would be better to use vmod-slicer to normalize byte ranges, but we
+	# cannot do that currently because the range header is part of the AWSv4
+	# signature and cannot be changed.
+	hash_data(req.http.x-range);
+}
+
+sub vcl_backend_fetch {
+	if (bereq.url == "/metrics") {
+		set bereq.backend = stat.backend_prometheus();
+		return(fetch);
+	}
+
+	if (bereq.http.x-method) {
+		set bereq.method = bereq.http.x-method;
+		unset bereq.http.x-method;
+	}
+
+	if (bereq.http.x-range) {
+		set bereq.http.range = bereq.http.x-range;
+		unset bereq.http.x-range;
+	}
+
+	# Create a TLS backend using the incoming host header.
+	set bereq.backend = goto.dns_backend(bereq.http.host, ssl=true);
+}
+
+sub vcl_backend_response {
+	if (beresp.status == 200 || beresp.status == 206 || beresp.status == 304) {
+		unset beresp.http.cache-control;
+		unset beresp.http.expires;
+		set beresp.ttl = 10y;
+	}
+}
+"""
+
+        with open(vcl_path, 'w') as f:
+            f.write(vcl_content)
+
+        logger.info(f"Generated default.vcl at {vcl_path}")
+        return True
+
+    def generate_native_varnish_service(self) -> bool:
+        """Generate teamcache.service for native Varnish deployment"""
+        service_path = Path('/etc/systemd/system/teamcache.service')
+
+        service_content = f"""[Unit]
+Description=Varnish Cache Plus, a high-performance HTTP accelerator
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=forking
+KillMode=process
+
+# Maximum number of open files (for ulimit -n)
+LimitNOFILE=131072
+
+# Shared memory (VSM) segments are tentatively locked in memory. The
+# default value for vsl_space (or shorthand varnishd -l option) is 80MB.
+# The default value for vst_space is 10MB, leaving 10MB of headroom.
+# There are other types of segments that would benefit from allowing
+# more memory to be locked.
+LimitMEMLOCK=100M
+
+# Enable this to avoid "fork failed" on reload.
+TasksMax=infinity
+
+# Maximum size of the corefile.
+LimitCORE=infinity
+
+# Maximum number of threads (for ulimit -u)
+LimitNPROC=infinity
+
+# The time to wait for start-up. If Varnish start-up does not complete within
+# the configured time, the Varnish service will be considered failed. The
+# default value for this timeout is not sufficient for certain setups with
+# persisted caches with large number of objects and ykeys.
+TimeoutStartSec=720
+
+# The time to wait for Varnish to stop gracefully.
+TimeoutStopSec=300
+
+ExecStartPre=/usr/bin/mkfs.mse4 -c /etc/varnish/mse4.conf configure
+
+ExecStart=/usr/sbin/varnishd \\
+	  -a :{self.varnish_port} \\
+	  -T localhost:6082 \\
+	  -S /etc/varnish/secret \\
+	  -p feature=+http2 \\
+	  -p thread_pool_max=1000 \\
+	  -p thread_pool_min=50 \\
+	  -r vcc_allow_inline_c \\
+	  -r allow_exec \\
+	  -f /etc/varnish/default.vcl \\
+	  -s mse4,/etc/varnish/mse4.conf
+ExecReload=/usr/sbin/varnishreload
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+        with open(service_path, 'w') as f:
+            f.write(service_content)
+
+        logger.info(f"Generated teamcache.service at {service_path}")
+        return True
+
     def generate_mse4_config(self) -> bool:
         """Generate MSE4 configuration file"""
         num_devices = len(self.selected_devices)
         if num_devices == 0:
             return False
-            
-        config_path = self.script_dir / "mse4.conf"
+
+        # For hybrid mode, write to /etc/varnish/; for Docker mode, write to script dir
+        if self.deployment_mode == "hybrid":
+            config_path = Path('/etc/varnish/mse4.conf')
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            config_path = self.script_dir / "mse4.conf"
+
         book_size = "8G"
         
         config_content = f"""# MSE4 Configuration
@@ -1008,10 +1470,68 @@ volumes:
         """Check if Docker and Docker Compose are available and running"""
         # Check Docker command
         if not shutil.which('docker'):
-            console.print("[bold #ef4444]Error: Docker is not installed[/bold #ef4444]")
-            console.print("Please install Docker: https://docs.docker.com/engine/install/")
-            return False
-        
+            console.print("[bold #ef4444]Docker is not installed[/bold #ef4444]\n")
+            console.print("[bold]Would you like to install Docker automatically?[/bold]")
+            console.print("[#9ca3af]This will download and run the official Docker installation script from https://get.docker.com[/#9ca3af]\n")
+
+            if Confirm.ask("Install Docker now?", default=True):
+                try:
+                    console.print("\n[bold]Downloading Docker installation script...[/bold]")
+
+                    # Download the official Docker installation script
+                    download_result = subprocess.run(
+                        ['curl', '-fsSL', 'https://get.docker.com', '-o', '/tmp/get-docker.sh'],
+                        capture_output=True, text=True, check=True
+                    )
+
+                    console.print("[bold]Installing Docker (this may take a few minutes)...[/bold]\n")
+
+                    # Run the installation script
+                    install_result = subprocess.run(
+                        ['sh', '/tmp/get-docker.sh'],
+                        capture_output=True, text=True
+                    )
+
+                    if install_result.returncode != 0:
+                        console.print(f"[bold #ef4444]Docker installation failed:[/bold #ef4444]")
+                        console.print(f"[#ef4444]{install_result.stderr}[/#ef4444]")
+                        console.print("\nPlease install Docker manually: https://docs.docker.com/engine/install/")
+                        return False
+
+                    # Clean up
+                    subprocess.run(['rm', '-f', '/tmp/get-docker.sh'], capture_output=True)
+
+                    # Start and enable Docker service
+                    console.print("[bold]Starting Docker service...[/bold]")
+                    subprocess.run(['systemctl', 'start', 'docker'], check=True, capture_output=True)
+                    subprocess.run(['systemctl', 'enable', 'docker'], check=True, capture_output=True)
+
+                    console.print("[#10b981]✓ Docker installed and started successfully![/#10b981]\n")
+
+                    # Verify installation
+                    version_result = subprocess.run(
+                        ['docker', '--version'],
+                        capture_output=True, text=True
+                    )
+                    if version_result.returncode == 0:
+                        console.print(f"[#9ca3af]{version_result.stdout.strip()}[/#9ca3af]\n")
+
+                except subprocess.CalledProcessError as e:
+                    console.print(f"[bold #ef4444]Failed to install Docker:[/bold #ef4444]")
+                    console.print(f"[#ef4444]{e.stderr if e.stderr else str(e)}[/#ef4444]")
+                    console.print("\nPlease install Docker manually: https://docs.docker.com/engine/install/")
+                    return False
+                except Exception as e:
+                    console.print(f"[bold #ef4444]Unexpected error during Docker installation:[/bold #ef4444]")
+                    console.print(f"[#ef4444]{str(e)}[/#ef4444]")
+                    console.print("\nPlease install Docker manually: https://docs.docker.com/engine/install/")
+                    return False
+            else:
+                console.print("\n[bold]Manual installation required:[/bold]")
+                console.print("  Visit: https://docs.docker.com/engine/install/")
+                console.print("\nPlease install Docker and run the setup again.")
+                return False
+
         # Check if Docker daemon is running
         try:
             result = subprocess.run(
@@ -1019,13 +1539,24 @@ volumes:
                 capture_output=True, text=True
             )
             if result.stdout.strip() != 'active':
-                console.print("[bold #ef4444]Error: Docker service is not running[/bold #ef4444]")
-                console.print("Please start Docker: [#3b82f6]sudo systemctl start docker[/#3b82f6]")
-                return False
+                console.print("[bold #ef4444]Docker service is not running[/bold #ef4444]")
+
+                if Confirm.ask("Would you like to start the Docker service?", default=True):
+                    try:
+                        subprocess.run(['systemctl', 'start', 'docker'], check=True, capture_output=True)
+                        subprocess.run(['systemctl', 'enable', 'docker'], check=True, capture_output=True)
+                        console.print("[#10b981]✓ Docker service started successfully![/#10b981]\n")
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"[#ef4444]Failed to start Docker service: {e}[/#ef4444]")
+                        console.print("Please start Docker manually: [#3b82f6]sudo systemctl start docker[/#3b82f6]")
+                        return False
+                else:
+                    console.print("Please start Docker: [#3b82f6]sudo systemctl start docker[/#3b82f6]")
+                    return False
         except subprocess.CalledProcessError:
             console.print("[bold #ef4444]Error: Could not check Docker service status[/bold #ef4444]")
             return False
-        
+
         # Check Docker Compose
         try:
             result = subprocess.run(
@@ -1034,13 +1565,15 @@ volumes:
             )
             if result.returncode != 0:
                 console.print("[bold #ef4444]Error: Docker Compose is not installed[/bold #ef4444]")
-                console.print("Please install Docker Compose plugin for Docker")
+                console.print("Docker Compose should have been installed with Docker.")
+                console.print("Please reinstall Docker or install the Docker Compose plugin manually.")
                 return False
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("[bold #ef4444]Error: Docker Compose is not available[/bold #ef4444]")
-            console.print("Please install Docker Compose plugin")
+            console.print("Docker Compose should have been installed with Docker.")
+            console.print("Please reinstall Docker or install the Docker Compose plugin manually.")
             return False
-        
+
         return True
     
     def install_systemd_service(self) -> bool:
@@ -1049,25 +1582,79 @@ volumes:
         if not self.check_docker():
             console.print("\n[bold #ef4444]Cannot install service without Docker[/bold #ef4444]")
             return False
-        
+
         service_path = self.script_dir / "teamcache.service"
-        
+
         if not service_path.exists():
             console.print("[#f59e0b]Warning: teamcache.service not found[/#f59e0b]")
             return False
-        
+
         try:
+            # Create /opt/teamcache directory
+            install_dir = Path('/opt/teamcache')
+            install_dir.mkdir(parents=True, exist_ok=True)
+            console.print(f"  ✓ Created installation directory: {install_dir}")
+
+            # Copy generated files to /opt/teamcache
+            files_to_copy = [
+                'compose.yaml',
+                'mse4.conf',
+                'entrypoint.sh',
+            ]
+
+            for filename in files_to_copy:
+                src = self.script_dir / filename
+                if src.exists():
+                    shutil.copy2(src, install_dir / filename)
+                    # Make entrypoint.sh executable
+                    if filename == 'entrypoint.sh':
+                        (install_dir / filename).chmod(0o755)
+                    logger.info(f"Copied {filename} to {install_dir}")
+
+            # Copy license file to both /opt/teamcache and /etc/varnish
+            license_src = None
+            cwd_license = Path.cwd() / "varnish-enterprise.lic"
+            script_license = self.script_dir / "varnish-enterprise.lic"
+
+            if cwd_license.exists():
+                license_src = cwd_license
+            elif script_license.exists():
+                license_src = script_license
+
+            if license_src:
+                # Copy to /opt/teamcache for Docker Compose
+                shutil.copy2(license_src, install_dir / "varnish-enterprise.lic")
+                logger.info(f"Copied license to {install_dir}")
+
+                # Copy to /etc/varnish for native Varnish
+                varnish_etc = Path('/etc/varnish')
+                varnish_etc.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(license_src, varnish_etc / "varnish-enterprise.lic")
+                logger.info(f"Copied license to {varnish_etc}")
+                console.print(f"  ✓ Copied license file to /etc/varnish/")
+
+            # Copy conf directory
+            src_conf = self.script_dir / "conf"
+            dst_conf = install_dir / "conf"
+            if src_conf.exists():
+                if dst_conf.exists():
+                    shutil.rmtree(dst_conf)
+                shutil.copytree(src_conf, dst_conf)
+                logger.info(f"Copied conf/ directory to {install_dir}")
+
+            console.print(f"  ✓ Copied configuration files to {install_dir}")
+
             # Check if service is already installed and running
             result = subprocess.run(
                 ['systemctl', 'is-active', 'teamcache.service'],
                 capture_output=True, text=True
             )
-            
+
             if result.stdout.strip() == 'active':
                 console.print("[#f59e0b]Service is already running[/#f59e0b]")
                 if not Confirm.ask("Would you like to restart the service with new configuration?"):
                     return True
-                
+
                 # Stop the service before updating
                 subprocess.run(['systemctl', 'stop', 'teamcache.service'], check=True)
                 console.print("  ✓ Stopped existing service")
@@ -1215,10 +1802,15 @@ volumes:
         
         # Then show the summary panel
         console.print("\n")
+
+        # Check if we skipped formatting
+        skip_format = self.selected_devices[0].get('skip_format', False) if self.selected_devices else False
+        format_msg = f"Used {len(self.selected_devices)} existing XFS device(s)" if skip_format else f"Formatted {len(self.selected_devices)} device(s) with XFS"
+
         summary_content = f"""[bold #10b981]Setup completed successfully![/bold #10b981]
 
 [bold]Steps executed:[/bold]
-  • Formatted {len(self.selected_devices)} device(s) with XFS
+  • {format_msg}
   • Created mount points and updated /etc/fstab
   • Generated MSE4 configuration
   • Generated Docker Compose configuration
@@ -1287,7 +1879,42 @@ This tool will help you:
         # Initial checks
         self.check_root_privileges()
         self.check_dependencies()
-        
+
+        # Select deployment mode
+        console.print("\n[bold]Deployment Mode Selection[/bold]\n")
+        console.print("Choose how to deploy TeamCache:\n")
+        console.print("  [bold]1. Docker Compose[/bold] (All-in-one)")
+        console.print("     • Varnish, Prometheus, and Grafana in Docker containers")
+        console.print("     • Easier to manage, single service\n")
+        console.print("  [bold]2. Hybrid[/bold] (Native + Optional Monitoring)")
+        console.print("     • Varnish installed natively via package manager")
+        console.print("     • Better performance, runs as systemd service")
+        console.print("     • Optional Prometheus/Grafana monitoring stack\n")
+
+        deployment_choice = Prompt.ask(
+            "Select deployment mode",
+            choices=["1", "2"],
+            default="2"
+        )
+
+        if deployment_choice == "2":
+            self.deployment_mode = "hybrid"
+            console.print("\n[#3b82f6]Selected: Hybrid deployment (Native Varnish)[/#3b82f6]")
+
+            # Ask about monitoring
+            self.enable_monitoring = Confirm.ask(
+                "\nWould you like to enable Prometheus/Grafana monitoring?",
+                default=True
+            )
+            if self.enable_monitoring:
+                console.print("[#3b82f6]Monitoring stack will be deployed[/#3b82f6]\n")
+            else:
+                console.print("[#9ca3af]Monitoring stack will be skipped[/#9ca3af]\n")
+        else:
+            self.deployment_mode = "docker"
+            self.enable_monitoring = True  # Always enabled in Docker mode
+            console.print("\n[#3b82f6]Selected: Full Docker Compose deployment[/#3b82f6]\n")
+
         # Get and display available devices
         console.print("[bold]Scanning for block devices...[/bold]\n")
         devices = self.get_block_devices()
