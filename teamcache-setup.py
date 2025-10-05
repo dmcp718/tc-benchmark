@@ -1406,9 +1406,6 @@ After=network-online.target nss-lookup.target
 Type=forking
 KillMode=process
 
-# Allow varnish user to bind to privileged ports (< 1024)
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
 # Maximum number of open files (for ulimit -n)
 LimitNOFILE=131072
 

@@ -310,9 +310,6 @@ After=network-online.target nss-lookup.target
 Type=forking
 KillMode=process
 
-# Allow varnish user to bind to privileged ports (< 1024)
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
 LimitNOFILE=131072
 LimitMEMLOCK=100M
 TasksMax=infinity
