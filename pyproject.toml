@@ -1,0 +1,11 @@
+[project]
+name = "teamcache-setup"
+version = "0.1.0"
+description = "TeamCache Setup - Interactive configuration and deployment tool for Varnish Enterprise"
+requires-python = ">=3.8"
+dependencies = [
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+teamcache-setup = "teamcache_setup:main"
