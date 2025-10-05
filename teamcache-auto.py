@@ -47,6 +47,7 @@ class TeamCacheAuto:
         self.enable_monitoring = config.get('ENABLE_MONITORING', 'true').lower() == 'true'
         self.device_paths = [d.strip() for d in config.get('DEVICES', '').split(',') if d.strip()]
         self.device_mode = config.get('DEVICE_MODE', 'format').lower()
+        self.storage_mode = config.get('STORAGE_MODE', 'raw_disk').lower()
         self.server_ip = config.get('SERVER_IP', '')
         self.varnish_port = int(config.get('VARNISH_PORT', '80'))
         self.grafana_password = config.get('GRAFANA_PASSWORD', '')
@@ -76,14 +77,28 @@ class TeamCacheAuto:
         if self.deployment_mode not in ['docker', 'hybrid']:
             errors.append(f"DEPLOYMENT_MODE must be 'docker' or 'hybrid', got '{self.deployment_mode}'")
 
-        # Validate device mode
-        if self.device_mode not in ['format', 'reuse']:
-            errors.append(f"DEVICE_MODE must be 'format' or 'reuse', got '{self.device_mode}'")
+        # Validate storage mode
+        if self.storage_mode not in ['raw_disk', 'filepath']:
+            errors.append(f"STORAGE_MODE must be 'raw_disk' or 'filepath', got '{self.storage_mode}'")
 
-        # Check devices exist
-        for device_path in self.device_paths:
-            if not Path(device_path).exists():
-                errors.append(f"Device not found: {device_path}")
+        # Validate device mode (only for raw_disk)
+        if self.storage_mode == 'raw_disk':
+            if self.device_mode not in ['format', 'reuse']:
+                errors.append(f"DEVICE_MODE must be 'format' or 'reuse', got '{self.device_mode}'")
+
+        # Check devices/paths exist
+        if self.storage_mode == 'raw_disk':
+            for device_path in self.device_paths:
+                if not Path(device_path).exists():
+                    errors.append(f"Device not found: {device_path}")
+        else:
+            # Filepath mode - check parent directories exist
+            for path_str in self.device_paths:
+                path = Path(path_str)
+                if not path.is_absolute():
+                    errors.append(f"Path must be absolute: {path_str}")
+                elif not path.exists() and not path.parent.exists():
+                    errors.append(f"Parent directory does not exist for: {path_str}")
 
         # Check license file
         license_path = Path(self.license_file)
@@ -91,8 +106,8 @@ class TeamCacheAuto:
             logger.warning(f"License file not found: {self.license_file}")
             logger.warning("Service may fail to start without valid license")
 
-        # Safety check for format mode
-        if self.device_mode == 'format' and not self.auto_confirm:
+        # Safety check for format mode (only for raw_disk)
+        if self.storage_mode == 'raw_disk' and self.device_mode == 'format' and not self.auto_confirm:
             errors.append("DEVICE_MODE=format requires AUTO_CONFIRM=true (destructive operation)")
 
         if errors:
@@ -235,7 +250,10 @@ env: {{
             disk_size_gb = device['size_bytes'] / (1024**3)
             store_size_gb = int((disk_size_gb - 8) * 0.98)
 
-            if self.deployment_mode == "hybrid":
+            # Use different paths based on storage mode and deployment mode
+            if self.storage_mode == 'filepath':
+                base_path = device['path']
+            elif self.deployment_mode == "hybrid":
                 base_path = f"/cache/disk{i}"
             else:
                 base_path = f"/mnt/disk{i}"
@@ -275,6 +293,15 @@ env: {{
             logger.info(f"[DRY RUN] Would generate service file at {service_path}")
             return True
 
+        # Build the ownership/SELinux command for all mount points
+        if self.mount_points:
+            # Create explicit list of directories to fix
+            dir_list = ' '.join([f'"{mp}"' for mp in self.mount_points])
+            ownership_cmd = f"for dir in {dir_list}; do [ -d \"$dir\" ] && chown -R varnish:varnish \"$dir\" && restorecon -R \"$dir\"; done"
+        else:
+            # Fallback to pattern matching (raw disk mode default)
+            ownership_cmd = 'for dir in /cache/disk*; do [ -d "$dir" ] && chown -R varnish:varnish "$dir" && restorecon -R "$dir"; done'
+
         service_content = f"""[Unit]
 Description=Varnish Cache Plus, a high-performance HTTP accelerator
 After=network-online.target nss-lookup.target
@@ -282,6 +309,9 @@ After=network-online.target nss-lookup.target
 [Service]
 Type=forking
 KillMode=process
+
+# Allow varnish user to bind to privileged ports (< 1024)
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 LimitNOFILE=131072
 LimitMEMLOCK=100M
@@ -294,7 +324,7 @@ TimeoutStopSec=300
 # Configure MSE4 storage (creates book and store files as root)
 ExecStartPre=/usr/bin/mkfs.mse4 -c /etc/varnish/mse4.conf configure
 # Fix ownership and SELinux context after mkfs.mse4 creates files
-ExecStartPre=/usr/bin/bash -c 'for dir in /cache/disk*; do [ -d "$dir" ] && chown -R varnish:varnish "$dir" && restorecon -R "$dir"; done'
+ExecStartPre=/usr/bin/bash -c '{ownership_cmd}'
 
 ExecStart=/usr/sbin/varnishd \\
 	  -a :{self.varnish_port} \\
@@ -353,10 +383,53 @@ WantedBy=multi-user.target
                 return False
 
             logger.info("✓ Varnish Enterprise installed")
+
+            # Generate secret file
+            self.generate_varnish_secret()
+
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to install Varnish: {e}")
             return False
+
+    def generate_varnish_secret(self) -> bool:
+        """Generate Varnish secret file for admin CLI authentication"""
+        if self.deployment_mode != "hybrid":
+            return True
+
+        secret_path = Path('/etc/varnish/secret')
+
+        # Skip if already exists
+        if secret_path.exists():
+            logger.info("Varnish secret file already exists, skipping")
+            return True
+
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would generate Varnish secret at {secret_path}")
+            return True
+
+        # Ensure directory exists
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate random secret (UUID format)
+        import uuid
+        secret = str(uuid.uuid4())
+
+        # Write secret file
+        with open(secret_path, 'w') as f:
+            f.write(secret + '\n')
+
+        # Set proper permissions (readable by root and varnish user only)
+        os.chmod(secret_path, 0o640)
+
+        # Set ownership to varnish user
+        try:
+            subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
+        except:
+            pass
+
+        logger.info(f"✓ Generated Varnish secret file at {secret_path}")
+        return True
 
     def copy_vcl_config(self) -> bool:
         """Copy VCL configuration for hybrid mode"""
@@ -440,27 +513,76 @@ WantedBy=multi-user.target
         if not self.validate_config():
             return False
 
-        # Prepare devices
-        logger.info(f"\nPreparing {len(self.device_paths)} device(s)...")
-        for i, device_path in enumerate(self.device_paths, 1):
-            device_info = self.get_device_info(device_path)
-            if not device_info:
-                return False
+        # Prepare storage
+        if self.storage_mode == 'filepath':
+            logger.info(f"\nPreparing {len(self.device_paths)} storage path(s)...")
+            for i, path_str in enumerate(self.device_paths, 1):
+                path = Path(path_str)
 
-            # Format if requested
-            if self.device_mode == 'format':
-                if not self.format_device_xfs(device_path):
-                    return False
-                # Refresh device info after format
+                # Create directory if it doesn't exist
+                if not path.exists():
+                    if self.dry_run:
+                        logger.info(f"[DRY RUN] Would create directory {path}")
+                    else:
+                        try:
+                            path.mkdir(parents=True, exist_ok=True)
+                            logger.info(f"✓ Created directory {path}")
+                        except Exception as e:
+                            logger.error(f"Failed to create directory {path}: {e}")
+                            return False
+                else:
+                    logger.info(f"✓ Using existing directory {path}")
+
+                # Get available space
+                stat = os.statvfs(path if path.exists() else path.parent)
+                available_bytes = stat.f_bavail * stat.f_frsize
+
+                storage_info = {
+                    'path': str(path),
+                    'size': f"{available_bytes / (1024**3):.1f}G",
+                    'size_bytes': available_bytes,
+                    'type': 'filepath'
+                }
+
+                self.selected_devices.append(storage_info)
+                self.mount_points.append(str(path))
+
+                # Set ownership for hybrid mode
+                if self.deployment_mode == "hybrid" and not self.dry_run:
+                    subprocess.run(['chown', '-R', 'varnish:varnish', str(path)], capture_output=True)
+
+                    # Add SELinux file context rule for this path AND its parent directories
+                    # This ensures varnishd can traverse the directory tree
+                    parent_path = path.parent
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{parent_path}(/.*)?'], capture_output=True)
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{path}(/.*)?'], capture_output=True)
+
+                    # Apply the context to parent and path
+                    subprocess.run(['restorecon', '-R', str(parent_path)], capture_output=True)
+                    subprocess.run(['restorecon', '-R', str(path)], capture_output=True)
+
+        else:
+            # Raw disk mode
+            logger.info(f"\nPreparing {len(self.device_paths)} device(s)...")
+            for i, device_path in enumerate(self.device_paths, 1):
                 device_info = self.get_device_info(device_path)
+                if not device_info:
+                    return False
 
-            self.selected_devices.append(device_info)
+                # Format if requested
+                if self.device_mode == 'format':
+                    if not self.format_device_xfs(device_path):
+                        return False
+                    # Refresh device info after format
+                    device_info = self.get_device_info(device_path)
 
-            # Mount
-            mount_point = f"/cache/disk{i}"
-            self.mount_points.append(mount_point)
-            if not self.mount_device(device_info, mount_point):
-                return False
+                self.selected_devices.append(device_info)
+
+                # Mount
+                mount_point = f"/cache/disk{i}"
+                self.mount_points.append(mount_point)
+                if not self.mount_device(device_info, mount_point):
+                    return False
 
         # Generate configs
         logger.info("\nGenerating configuration files...")

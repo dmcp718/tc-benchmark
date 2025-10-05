@@ -60,6 +60,7 @@ class TeamCacheSetup:
         self.varnish_port = 80
         self.deployment_mode = "docker"  # "docker" or "hybrid"
         self.enable_monitoring = False
+        self.storage_mode = "raw_disk"  # "raw_disk" or "filepath"
 
         # Modern blue color palette - subtle and professional
         self.colors = {
@@ -317,7 +318,116 @@ class TeamCacheSetup:
                     
             except (ValueError, IndexError) as e:
                 console.print(f"[#ef4444]Invalid selection: {e}[/#ef4444]")
-    
+
+    def get_filepath_storage(self) -> List[Dict]:
+        """Get filepath-based storage paths from user"""
+        console.print("\n[bold]Filepath Storage Mode[/bold]\n")
+        console.print("Enter directory paths to use for cache storage.")
+        console.print("Each path will be used for a separate MSE4 book+store.")
+        console.print("Example: /storage/cache/disk1,/storage/cache/disk2\n")
+
+        while True:
+            filepath_input = Prompt.ask(
+                "Enter comma-separated directory paths",
+                default="/cache/disk1"
+            )
+
+            try:
+                paths = [p.strip() for p in filepath_input.split(',') if p.strip()]
+
+                if not paths:
+                    console.print("[#ef4444]Error: At least one path is required[/#ef4444]")
+                    continue
+
+                # Validate and prepare paths
+                storage_entries = []
+                for path_str in paths:
+                    path = Path(path_str)
+
+                    # Check if path is absolute
+                    if not path.is_absolute():
+                        console.print(f"[#ef4444]Error: {path_str} is not an absolute path[/#ef4444]")
+                        storage_entries = []
+                        break
+
+                    # Check if path exists
+                    if path.exists():
+                        if not path.is_dir():
+                            console.print(f"[#ef4444]Error: {path_str} exists but is not a directory[/#ef4444]")
+                            storage_entries = []
+                            break
+
+                        # Get available space
+                        stat = os.statvfs(path)
+                        available_bytes = stat.f_bavail * stat.f_frsize
+                        available_gb = available_bytes / (1024**3)
+
+                        if available_bytes < 10 * 1024**3:  # Less than 10GB
+                            console.print(f"[#ef4444]Error: {path_str} has less than 10GB available ({available_gb:.1f}GB)[/#ef4444]")
+                            storage_entries = []
+                            break
+
+                        storage_entries.append({
+                            'path': str(path),
+                            'size': f"{available_gb:.1f}G",
+                            'size_bytes': available_bytes,
+                            'exists': True,
+                            'type': 'filepath'
+                        })
+                    else:
+                        # Path doesn't exist - check if parent exists
+                        parent = path.parent
+                        if not parent.exists():
+                            console.print(f"[#ef4444]Error: Parent directory {parent} does not exist[/#ef4444]")
+                            storage_entries = []
+                            break
+
+                        # Get available space from parent
+                        stat = os.statvfs(parent)
+                        available_bytes = stat.f_bavail * stat.f_frsize
+                        available_gb = available_bytes / (1024**3)
+
+                        if available_bytes < 10 * 1024**3:
+                            console.print(f"[#ef4444]Error: Parent directory {parent} has less than 10GB available ({available_gb:.1f}GB)[/#ef4444]")
+                            storage_entries = []
+                            break
+
+                        storage_entries.append({
+                            'path': str(path),
+                            'size': f"{available_gb:.1f}G",
+                            'size_bytes': available_bytes,
+                            'exists': False,
+                            'type': 'filepath'
+                        })
+
+                if storage_entries:
+                    # Display what we found
+                    table = Table(
+                        title="Filepath Storage Configuration",
+                        box=box.ROUNDED,
+                        title_style="#3b82f6",
+                        header_style="#1e3a8a",
+                        border_style="#9ca3af"
+                    )
+
+                    table.add_column("Path", style="#1e3a8a")
+                    table.add_column("Available Space", style="#6b7280", justify="right")
+                    table.add_column("Status", style="#6b7280")
+
+                    for entry in storage_entries:
+                        status = "[#10b981]Exists[/#10b981]" if entry['exists'] else "[#f59e0b]Will be created[/#f59e0b]"
+                        table.add_row(entry['path'], entry['size'], status)
+
+                    console.print("\n")
+                    console.print(table)
+                    console.print("\n")
+
+                    if Confirm.ask("Use these paths?", default=True):
+                        return storage_entries
+
+            except Exception as e:
+                console.print(f"[#ef4444]Error: {e}[/#ef4444]")
+
     def check_mounted_devices(self, devices: List[Dict]) -> List[Dict]:
         """Check if any selected devices are currently mounted"""
         mounted_devices = []
@@ -461,6 +571,34 @@ class TeamCacheSetup:
         """Show confirmation dialog for device selection"""
         console.print("\n")
 
+        # Filepath mode - simple confirmation
+        if self.storage_mode == "filepath":
+            device_list = "Selected storage paths:\n\n"
+            for device in devices:
+                status = "exists" if device.get('exists') else "will be created"
+                device_list += f"  • {device['path']} [#9ca3af]({device['size']} available, {status})[/#9ca3af]\n"
+
+            console.print(Panel(
+                device_list,
+                title="Storage Path Selection",
+                border_style="#9ca3af",
+                padding=(1, 2)
+            ))
+
+            info_panel = Panel(
+                "[bold #3b82f6]ℹ️  Filepath Storage Mode[/bold #3b82f6]\n\n"
+                "Storage directories will be created (if needed) and used for cache storage.\n"
+                "No device formatting required.\n\n"
+                "[#9ca3af]Directories will be created with appropriate permissions.[/#9ca3af]",
+                border_style="#3b82f6",
+                title="Information",
+                padding=(1, 2)
+            )
+            console.print(info_panel)
+            console.print("\n")
+            return Confirm.ask("[bold]Continue with these paths?[/bold]", default=True)
+
+        # Raw disk mode
         # Check if we're skipping format (using existing disks)
         skip_format = devices[0].get('skip_format', False) if devices else False
 
@@ -485,7 +623,7 @@ class TeamCacheSetup:
             device_list = "Selected devices for formatting:\n\n"
 
         for device in devices:
-            fs_info = f"Current FS: {device.get('fstype', 'none')}" if skip_format else f"Size: {device['size']}, Model: {device['model']}"
+            fs_info = f"Current FS: {device.get('fstype', 'none')}" if skip_format else f"Size: {device['size']}, Model: {device.get('model', 'Unknown')}"
             device_list += f"  • {device['path']} [#9ca3af]({fs_info})[/#9ca3af]\n"
 
         console.print(Panel(
@@ -529,6 +667,11 @@ class TeamCacheSetup:
     
     def format_devices_xfs(self, devices: List[Dict]) -> bool:
         """Format devices with XFS filesystem or verify existing XFS"""
+        # Skip formatting entirely for filepath mode
+        if self.storage_mode == "filepath":
+            console.print("\n[#9ca3af]Skipping device formatting (filepath mode)[/#9ca3af]\n")
+            return True
+
         # Check if we're skipping format
         skip_format = devices[0].get('skip_format', False) if devices else False
 
@@ -647,7 +790,54 @@ class TeamCacheSetup:
             return True
     
     def create_mount_points(self) -> bool:
-        """Create mount points and update /etc/fstab"""
+        """Create mount points and update /etc/fstab (or create directories for filepath mode)"""
+        if self.storage_mode == "filepath":
+            console.print(Panel(
+                "Setting Up Storage Directories\n\n"
+                "[#9ca3af]Creating cache storage directories...[/#9ca3af]",
+                border_style="#9ca3af",
+                padding=(0, 2)
+            ))
+            console.print("\n")
+
+            self.mount_points = []
+
+            for i, entry in enumerate(self.selected_devices, 1):
+                path = Path(entry['path'])
+                self.mount_points.append(str(path))
+
+                if not path.exists():
+                    try:
+                        path.mkdir(parents=True, exist_ok=True)
+                        console.print(f"  [#10b981]✓[/#10b981] Created directory {path}")
+                        logger.info(f"Created storage directory: {path}")
+                    except Exception as e:
+                        console.print(f"  [#ef4444]✗[/#ef4444] Failed to create {path}: {e}")
+                        logger.error(f"Failed to create directory {path}: {e}")
+                        return False
+                else:
+                    console.print(f"  [#3b82f6]✓[/#3b82f6] Using existing directory {path}")
+                    logger.info(f"Using existing storage directory: {path}")
+
+                # Set ownership and SELinux context for Varnish user (hybrid mode only)
+                if self.deployment_mode == "hybrid":
+                    subprocess.run(['chown', '-R', 'varnish:varnish', str(path)], capture_output=True)
+
+                    # Add SELinux file context rule for this path AND its parent directories
+                    # This ensures varnishd can traverse the directory tree
+                    parent_path = path.parent
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{parent_path}(/.*)?'], capture_output=True)
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{path}(/.*)?'], capture_output=True)
+
+                    # Apply the context to parent and path
+                    subprocess.run(['restorecon', '-R', str(parent_path)], capture_output=True)
+                    subprocess.run(['restorecon', '-R', str(path)], capture_output=True)
+                    logger.info(f"Set ownership and SELinux context for {path}")
+
+            console.print("")
+            return True
+
+        # Raw disk mode - original mount point logic
         console.print(Panel(
             "Setting Up Mount Points\n\n"
             "[#9ca3af]Creating mount directories and updating system configuration...[/#9ca3af]",
@@ -655,9 +845,9 @@ class TeamCacheSetup:
             padding=(0, 2)
         ))
         console.print("\n")
-        
+
         self.mount_points = []
-        
+
         for i, device in enumerate(self.selected_devices, 1):
             mount_point = f"/cache/disk{i}"
             self.mount_points.append(mount_point)
@@ -1049,11 +1239,46 @@ class TeamCacheSetup:
                 if version_result.returncode == 0:
                     console.print(f"[#9ca3af]{version_result.stderr.splitlines()[0]}[/#9ca3af]\n")
 
+            # Generate secret file if it doesn't exist
+            self.generate_varnish_secret()
+
             return True
 
         except Exception as e:
             console.print(f"[#ef4444]Error installing Varnish: {e}[/#ef4444]")
             return False
+
+    def generate_varnish_secret(self) -> bool:
+        """Generate Varnish secret file for admin CLI authentication"""
+        secret_path = Path('/etc/varnish/secret')
+
+        # Skip if already exists
+        if secret_path.exists():
+            logger.info("Varnish secret file already exists, skipping")
+            return True
+
+        # Ensure directory exists
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate random secret (UUID format)
+        import uuid
+        secret = str(uuid.uuid4())
+
+        # Write secret file
+        with open(secret_path, 'w') as f:
+            f.write(secret + '\n')
+
+        # Set proper permissions (readable by root and varnish user only)
+        os.chmod(secret_path, 0o640)
+
+        # Set ownership to varnish user if it exists
+        try:
+            subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
+        except:
+            pass  # varnish user may not exist yet
+
+        logger.info(f"Generated Varnish secret file at {secret_path}")
+        return True
 
     def generate_default_vcl(self) -> bool:
         """Generate default.vcl for native Varnish deployment"""
@@ -1164,6 +1389,15 @@ sub vcl_backend_response {
         """Generate teamcache.service for native Varnish deployment"""
         service_path = Path('/etc/systemd/system/teamcache.service')
 
+        # Build the ownership/SELinux command for all mount points
+        if self.mount_points:
+            # Create explicit list of directories to fix
+            dir_list = ' '.join([f'"{mp}"' for mp in self.mount_points])
+            ownership_cmd = f"for dir in {dir_list}; do [ -d \"$dir\" ] && chown -R varnish:varnish \"$dir\" && restorecon -R \"$dir\"; done"
+        else:
+            # Fallback to pattern matching (raw disk mode default)
+            ownership_cmd = 'for dir in /cache/disk*; do [ -d "$dir" ] && chown -R varnish:varnish "$dir" && restorecon -R "$dir"; done'
+
         service_content = f"""[Unit]
 Description=Varnish Cache Plus, a high-performance HTTP accelerator
 After=network-online.target nss-lookup.target
@@ -1171,6 +1405,9 @@ After=network-online.target nss-lookup.target
 [Service]
 Type=forking
 KillMode=process
+
+# Allow varnish user to bind to privileged ports (< 1024)
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Maximum number of open files (for ulimit -n)
 LimitNOFILE=131072
@@ -1203,7 +1440,7 @@ TimeoutStopSec=300
 # Configure MSE4 storage (creates book and store files as root)
 ExecStartPre=/usr/bin/mkfs.mse4 -c /etc/varnish/mse4.conf configure
 # Fix ownership and SELinux context after mkfs.mse4 creates files
-ExecStartPre=/usr/bin/bash -c 'for dir in /cache/disk*; do [ -d "$dir" ] && chown -R varnish:varnish "$dir" && restorecon -R "$dir"; done'
+ExecStartPre=/usr/bin/bash -c '{ownership_cmd}'
 
 ExecStart=/usr/sbin/varnishd \\
 	  -a :{self.varnish_port} \\
@@ -1258,8 +1495,11 @@ env: {{
             disk_size_gb = device['size_bytes'] / (1024**3)
             store_size_gb = int((disk_size_gb - 8) * 0.98)
 
-            # Use different paths based on deployment mode
-            if self.deployment_mode == "hybrid":
+            # Use different paths based on storage mode and deployment mode
+            if self.storage_mode == "filepath":
+                # Use the actual filepath from selected_devices
+                base_path = device['path']
+            elif self.deployment_mode == "hybrid":
                 base_path = f"/cache/disk{i}"
             else:
                 base_path = f"/mnt/disk{i}"
@@ -2170,15 +2410,44 @@ This tool will help you:
             self.enable_monitoring = True  # Always enabled in Docker mode
             console.print("\n[#3b82f6]Selected: Full Docker Compose deployment[/#3b82f6]\n")
 
-        # Get and display available devices
-        console.print("[bold]Scanning for block devices...[/bold]\n")
-        devices = self.get_block_devices()
-        
-        # Select devices
-        self.selected_devices = self.display_device_selector(devices)
-        if not self.selected_devices:
-            console.print("[#f59e0b]No devices selected. Exiting.[/#f59e0b]")
-            return
+        # Select storage mode
+        console.print("\n[bold]Storage Mode Selection[/bold]\n")
+        console.print("Choose how to configure cache storage:\n")
+        console.print("  [bold]1. Raw Disk Mode[/bold]")
+        console.print("     • Use entire block devices (/dev/sdb, /dev/sdc, etc.)")
+        console.print("     • Devices will be formatted with XFS")
+        console.print("     • Mounted at /cache/disk1, /cache/disk2, etc.\n")
+        console.print("  [bold]2. Filepath Mode[/bold]")
+        console.print("     • Use directory paths on existing mounted filesystems")
+        console.print("     • No device formatting required")
+        console.print("     • Example: /storage/cache/disk1, /storage/cache/disk2\n")
+
+        storage_choice = Prompt.ask(
+            "Select storage mode",
+            choices=["1", "2"],
+            default="1"
+        )
+
+        if storage_choice == "2":
+            self.storage_mode = "filepath"
+            console.print("\n[#3b82f6]Selected: Filepath mode[/#3b82f6]\n")
+            # Get filepath storage paths
+            self.selected_devices = self.get_filepath_storage()
+            if not self.selected_devices:
+                console.print("[#f59e0b]No storage paths configured. Exiting.[/#f59e0b]")
+                return
+        else:
+            self.storage_mode = "raw_disk"
+            console.print("\n[#3b82f6]Selected: Raw disk mode[/#3b82f6]\n")
+            # Get and display available devices
+            console.print("[bold]Scanning for block devices...[/bold]\n")
+            devices = self.get_block_devices()
+
+            # Select devices
+            self.selected_devices = self.display_device_selector(devices)
+            if not self.selected_devices:
+                console.print("[#f59e0b]No devices selected. Exiting.[/#f59e0b]")
+                return
         
         # Confirm selection
         if not self.confirm_device_selection(self.selected_devices):
