@@ -415,5 +415,4 @@ resource "null_resource" "teamcache_deployment" {
 ## See Also
 
 - **README.md** - Main interactive TUI documentation
-- **CLAUDE.md** - Development and architecture documentation
 - **conf/** - Configuration templates and examples
