@@ -1,6 +1,6 @@
 # TeamCache Setup Tool
 
-Automated deployment tool for LucidLink TeamCache - a high-performance S3 proxy caching solution powered by Varnish Enterprise.
+Automated deployment tool for LucidLink TeamCache
 
 ## Overview
 

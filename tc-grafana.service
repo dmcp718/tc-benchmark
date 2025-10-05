@@ -1,0 +1,15 @@
+[Unit]
+Description=TeamCache Monitoring Stack (Prometheus + Grafana)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=true
+WorkingDirectory=/opt/teamcache
+ExecStart=/usr/bin/env docker compose -f monitoring-compose.yaml up
+ExecStop=/usr/bin/env docker compose -f monitoring-compose.yaml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
