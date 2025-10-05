@@ -281,16 +281,14 @@ class TeamCacheSetup:
 
         skip_format = (format_choice == "2")
 
-        if not skip_format:
-            console.print("\n[bold #f59e0b]WARNING: Selected devices will be COMPLETELY ERASED![/bold #f59e0b]\n")
-
         while True:
             if skip_format:
                 selection = Prompt.ask(
-                    "Select existing XFS devices to use (comma-separated numbers, e.g., 1,3)",
+                    "\nSelect existing XFS devices to use (comma-separated numbers, e.g., 1,3)",
                     default="1"
                 )
             else:
+                console.print("\n[bold #f59e0b]WARNING: Selected devices will be COMPLETELY ERASED![/bold #f59e0b]\n")
                 selection = Prompt.ask(
                     "Select devices to format (comma-separated numbers, e.g., 1,3)",
                     default="1"
