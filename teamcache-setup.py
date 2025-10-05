@@ -666,6 +666,15 @@ class TeamCacheSetup:
             if device.get('already_mounted', False):
                 console.print(f"  [#3b82f6]✓[/#3b82f6] Reusing {device['path']} already mounted at {mount_point}")
                 logger.info(f"Reusing existing mount: {device['path']} at {mount_point}")
+
+                # Set ownership and SELinux context for Varnish user (hybrid mode only)
+                if self.deployment_mode == "hybrid":
+                    subprocess.run(['chown', '-R', 'varnish:varnish', mount_point], capture_output=True)
+                    # Add SELinux file context rule for this mount point
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{mount_point}(/.*)?'], capture_output=True)
+                    # Apply the context
+                    subprocess.run(['restorecon', '-R', mount_point], capture_output=True)
+                    logger.info(f"Set ownership and SELinux context for {mount_point}")
                 continue
 
             # Create mount point directory
@@ -699,10 +708,19 @@ class TeamCacheSetup:
 
             if mount_result.returncode == 0:
                 console.print(f"  [#10b981]✓[/#10b981] Mounted {device['path']} at {mount_point}")
+
+                # Set ownership and SELinux context for Varnish user (hybrid mode only)
+                if self.deployment_mode == "hybrid":
+                    subprocess.run(['chown', '-R', 'varnish:varnish', mount_point], capture_output=True)
+                    # Add SELinux file context rule for this mount point
+                    subprocess.run(['semanage', 'fcontext', '-a', '-t', 'varnishd_var_lib_t', f'{mount_point}(/.*)?'], capture_output=True)
+                    # Apply the context
+                    subprocess.run(['restorecon', '-R', mount_point], capture_output=True)
+                    logger.info(f"Set ownership and SELinux context for {mount_point}")
             else:
                 console.print(f"  [#ef4444]✗[/#ef4444] Failed to mount {device['path']}")
                 logger.error(f"Mount failed: {mount_result.stderr}")
-        
+
         # Add spacing after mount operations complete
         console.print("")
         return True
@@ -877,6 +895,26 @@ class TeamCacheSetup:
     
     def install_varnish_native(self) -> bool:
         """Install Varnish Plus natively via package manager"""
+        # Check if Varnish is already installed
+        if shutil.which('varnishd'):
+            version_result = subprocess.run(
+                ['varnishd', '-V'],
+                capture_output=True,
+                text=True
+            )
+            if version_result.returncode == 0:
+                version_info = version_result.stderr.splitlines()[0] if version_result.stderr else "Unknown version"
+                console.print("\n")
+                console.print(Panel(
+                    f"Varnish Enterprise Already Installed\n\n"
+                    f"[#9ca3af]{version_info}[/#9ca3af]\n\n"
+                    f"[#10b981]Skipping installation...[/#10b981]",
+                    border_style="#10b981",
+                    padding=(0, 2)
+                ))
+                console.print("\n")
+                return True
+
         console.print("\n")
         console.print(Panel(
             "Installing Varnish Enterprise\n\n"
@@ -924,7 +962,13 @@ class TeamCacheSetup:
                 # Install prerequisites
                 console.print("  • Installing prerequisites...")
                 subprocess.run(
-                    ['dnf', '-y', 'install', 'curl', 'gnupg2', 'yum-utils', 'epel-release', 'libunwind', 'isa-l'],
+                    ['dnf', '-y', 'install', 'curl', 'gnupg2', 'yum-utils', 'epel-release'],
+                    capture_output=True,
+                    text=True
+                )
+                # Install Varnish dependencies (required for EL9)
+                subprocess.run(
+                    ['dnf', '-y', 'install', 'libunwind', 'isa-l'],
                     capture_output=True,
                     text=True
                 )
@@ -1156,7 +1200,10 @@ TimeoutStartSec=720
 # The time to wait for Varnish to stop gracefully.
 TimeoutStopSec=300
 
+# Configure MSE4 storage (creates book and store files as root)
 ExecStartPre=/usr/bin/mkfs.mse4 -c /etc/varnish/mse4.conf configure
+# Fix ownership and SELinux context after mkfs.mse4 creates files
+ExecStartPre=/usr/bin/bash -c 'for dir in /cache/disk*; do [ -d "$dir" ] && chown -R varnish:varnish "$dir" && restorecon -R "$dir"; done'
 
 ExecStart=/usr/sbin/varnishd \\
 	  -a :{self.varnish_port} \\
@@ -1210,14 +1257,20 @@ env: {{
             # size_bytes is in bytes, convert to GB
             disk_size_gb = device['size_bytes'] / (1024**3)
             store_size_gb = int((disk_size_gb - 8) * 0.98)
-            
+
+            # Use different paths based on deployment mode
+            if self.deployment_mode == "hybrid":
+                base_path = f"/cache/disk{i}"
+            else:
+                base_path = f"/mnt/disk{i}"
+
             config_content += f"""                id = "book{i}";
-                filename = "/var/lib/mse/disk{i}/book";
+                filename = "{base_path}/book";
                 size = "{book_size}";
 
                 stores = ( {{
                         id = "store{i}";
-                        filename = "/var/lib/mse/disk{i}/store";
+                        filename = "{base_path}/store";
                         size = "{store_size_gb}G";
                 }} );
 """
@@ -1984,18 +2037,25 @@ volumes:
     def display_summary(self):
         """Display final summary and next steps"""
         # Service installation prompt FIRST
+        service_installed = False
         service_path = self.script_dir / "teamcache.service"
         if service_path.exists():
             console.print("\n")
             if Confirm.ask("Would you like to install and start the TeamCache systemd service?"):
                 console.print("\n[bold]Installing systemd service...[/bold]\n")
-                self.install_systemd_service()
+                service_installed = self.install_systemd_service()
+                if not service_installed:
+                    console.print("\n[#ef4444]Service installation failed. Please check the logs above.[/#ef4444]")
+                    self.show_manual_steps()
+                    return
             else:
                 self.show_manual_steps()
+                return
         else:
             self.show_manual_steps()
-        
-        # Then show the summary panel
+            return
+
+        # Then show the summary panel (only if service installed successfully)
         console.print("\n")
 
         # Check if we skipped formatting
