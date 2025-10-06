@@ -1443,7 +1443,7 @@ ExecStart=/usr/sbin/varnishd \\
 	  -a :{self.varnish_port} \\
 	  -T localhost:6082 \\
 	  -S /etc/varnish/secret \\
-	  -l /etc/varnish/varnish-enterprise.lic \\
+	  -L /etc/varnish/varnish-enterprise.lic \\
 	  -p feature=+http2 \\
 	  -p thread_pool_max=1000 \\
 	  -p thread_pool_min=50 \\
@@ -1955,6 +1955,25 @@ volumes:
         """Install native Varnish service and optionally monitoring service"""
         try:
             console.print("\n[bold]Installing TeamCache Services...[/bold]\n")
+
+            # Copy license file to /etc/varnish (overrides package-provided dummy license)
+            license_src = None
+            cwd_license = Path.cwd() / "varnish-enterprise.lic"
+            script_license = self.script_dir / "varnish-enterprise.lic"
+
+            if cwd_license.exists():
+                license_src = cwd_license
+            elif script_license.exists():
+                license_src = script_license
+
+            if license_src:
+                varnish_etc = Path('/etc/varnish')
+                varnish_etc.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(license_src, varnish_etc / "varnish-enterprise.lic")
+                logger.info(f"Copied license from {license_src} to {varnish_etc}")
+                console.print(f"  ✓ Copied license file to /etc/varnish/")
+            else:
+                console.print(f"  [#f59e0b]⚠ No license file found - using package default[/#f59e0b]")
 
             # Install native Varnish service (teamcache.service)
             console.print("[bold]1. Installing Varnish service (teamcache.service)[/bold]")
