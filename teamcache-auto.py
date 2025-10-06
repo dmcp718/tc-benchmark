@@ -327,6 +327,7 @@ ExecStart=/usr/sbin/varnishd \\
 	  -a :{self.varnish_port} \\
 	  -T localhost:6082 \\
 	  -S /etc/varnish/secret \\
+	  -l /etc/varnish/varnish-enterprise.lic \\
 	  -p feature=+http2 \\
 	  -p thread_pool_max=1000 \\
 	  -p thread_pool_min=50 \\
