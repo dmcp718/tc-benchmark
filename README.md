@@ -11,10 +11,11 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 
 ### Available Packages
 
-| Package       | File                                        | Size | Target Systems                     |
-|---------------|---------------------------------------------|------|------------------------------------|
-| Debian/Ubuntu | `tframetest_3025.1.1_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
-| EL9 RPM       | `tframetest-3025.1.1-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
+| Package          | File                                        | Size | Target Systems                     |
+|------------------|---------------------------------------------|------|------------------------------------|
+| Debian/Ubuntu    | `tframetest_3025.1.1_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
+| EL9 RPM          | `tframetest-3025.1.1-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
+| Windows 64-bit   | `tframetest-3025.1.1-win64.zip`             | 219K | Windows 10/11, Server 2016+        |
 
 ## Installation
 
@@ -26,6 +27,16 @@ sudo dpkg -i tframetest_3025.1.1_amd64.deb
 ### RHEL/Rocky/AlmaLinux 9
 ```bash
 sudo rpm -ivh tframetest-3025.1.1-1.el9.x86_64.rpm
+```
+
+### Windows 10/11
+```powershell
+# Extract the ZIP file
+Expand-Archive tframetest-3025.1.1-win64.zip
+
+# Add to PATH or run directly
+cd tframetest-win-x86_64-w64-mingw32-3025.1.1
+.\tframetest.exe --version
 ```
 
 ### Verification
