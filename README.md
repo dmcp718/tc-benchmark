@@ -85,6 +85,10 @@ tframetest -r -n 10000 -t 8 /mnt/storage/frametest
 
 This repository includes **tfbench**, a TUI (Terminal User Interface) tool that runs tframetest benchmarks and displays beautiful visual results using Rich.
 
+**Available Versions:**
+- `tfbench.py` - Linux/macOS version (uses `uv`)
+- `tfbench-win.py` - Windows version (see [WINDOWS_SETUP.md](WINDOWS_SETUP.md))
+
 ### Features
 
 - 🎨 **Rich TUI visualizations** - Bar charts, tables, and sparklines
@@ -92,14 +96,19 @@ This repository includes **tfbench**, a TUI (Terminal User Interface) tool that 
 - 🔍 **Performance insights** - Automatic calculation of cache speedup and ratios
 - 🚀 **Automated testing** - Runs full benchmark suite (1 write + 2 reads)
 - ⚡ **Real-time progress** - Live progress indicators during test execution
+- 💾 **CSV export** - Export results for analysis in Excel/pandas
 
 ### Installation
 
+**Linux/macOS:**
 ```bash
 # Requires uv (https://github.com/astral-sh/uv)
 # If you don't have uv installed:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+**Windows:**
+See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed Windows installation and usage instructions.
 
 ### Quick Start
 
