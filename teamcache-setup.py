@@ -2297,33 +2297,57 @@ volumes:
         skip_format = self.selected_devices[0].get('skip_format', False) if self.selected_devices else False
         format_msg = f"Used {len(self.selected_devices)} existing XFS device(s)" if skip_format else f"Formatted {len(self.selected_devices)} device(s) with XFS"
 
+        # Build steps list based on deployment mode
+        steps = [
+            format_msg,
+            "Created mount points and updated /etc/fstab",
+            "Generated MSE4 configuration"
+        ]
+
+        if self.deployment_mode == "hybrid":
+            steps.append("Generated Varnish VCL configuration")
+            steps.append("Installed native Varnish service")
+            if self.enable_monitoring:
+                steps.append("Set up Grafana monitoring stack")
+        else:
+            steps.append("Generated Docker Compose configuration")
+            steps.append("Set up Grafana with admin password")
+
+        steps_text = "\n".join([f"  • {step}" for step in steps])
+
         summary_content = f"""[bold #10b981]Setup completed successfully![/bold #10b981]
 
 [bold]Steps executed:[/bold]
-  • {format_msg}
-  • Created mount points and updated /etc/fstab
-  • Generated MSE4 configuration
-  • Generated Docker Compose configuration
-  • Set up Grafana with admin password
+{steps_text}
 
 [bold]Mounted devices:[/bold]"""
-        
+
         for i, device in enumerate(self.selected_devices):
             summary_content += f"\n  • {device['path']} → {self.mount_points[i]}"
-        
-        summary_content += f"""
 
-[bold]Generated files:[/bold]
-  • mse4.conf
-  • compose.yaml
-  • conf/grafana/grafana.ini
-  • conf/prometheus.yml
+        # Generated files section - conditional based on deployment mode
+        summary_content += "\n\n[bold]Generated files:[/bold]\n"
+        if self.deployment_mode == "hybrid":
+            summary_content += "  • /etc/varnish/default.vcl\n"
+            summary_content += "  • /etc/varnish/mse4.conf\n"
+            if self.enable_monitoring:
+                summary_content += "  • monitoring-compose.yaml\n"
+                summary_content += "  • conf/grafana/grafana.ini\n"
+                summary_content += "  • conf/prometheus.yml\n"
+        else:
+            summary_content += "  • mse4.conf\n"
+            summary_content += "  • compose.yaml\n"
+            summary_content += "  • conf/grafana/grafana.ini\n"
+            summary_content += "  • conf/prometheus.yml\n"
 
-[bold]Access points:[/bold]
-  • TeamCache endpoint: http://{self.server_ip}:{self.varnish_port}
-  • Grafana Dashboard: http://{self.server_ip}:3000
+        # Access points - conditional based on monitoring
+        summary_content += f"\n[bold]Access points:[/bold]\n"
+        summary_content += f"  • TeamCache endpoint: http://{self.server_ip}:{self.varnish_port}\n"
 
-[bold]Log file:[/bold] {logging.getLoggerClass().root.handlers[0].baseFilename}"""
+        if (self.deployment_mode == "docker") or (self.deployment_mode == "hybrid" and self.enable_monitoring):
+            summary_content += f"  • Grafana Dashboard: http://{self.server_ip}:3000\n"
+
+        summary_content += f"\n[bold]Log file:[/bold] {logging.getLoggerClass().root.handlers[0].baseFilename}"
         
         console.print(Panel(summary_content, title="Setup Complete", border_style="#10b981"))
     
