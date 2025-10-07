@@ -1942,6 +1942,17 @@ volumes:
             else:
                 console.print(f"  [#f59e0b]⚠ No license file found - using package default[/#f59e0b]")
 
+            # Ensure secret file exists (package should create it, but handle case where varnish was already installed)
+            secret_path = Path('/etc/varnish/secret')
+            if not secret_path.exists():
+                import uuid
+                secret_path.parent.mkdir(parents=True, exist_ok=True)
+                secret_path.write_text(str(uuid.uuid4()) + '\n')
+                os.chmod(secret_path, 0o600)
+                subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
+                logger.info(f"Created secret file at {secret_path}")
+                console.print(f"  ✓ Created Varnish admin secret")
+
             # Install native Varnish service (teamcache.service)
             console.print("[bold]1. Installing Varnish service (teamcache.service)[/bold]")
 

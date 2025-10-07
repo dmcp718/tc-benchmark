@@ -436,6 +436,17 @@ WantedBy=multi-user.target
             logger.info("[DRY RUN] Would enable and start teamcache.service")
             return True
 
+        # Ensure secret file exists (package should create it, but handle case where varnish was already installed)
+        if self.deployment_mode == "hybrid":
+            secret_path = Path('/etc/varnish/secret')
+            if not secret_path.exists():
+                import uuid
+                secret_path.parent.mkdir(parents=True, exist_ok=True)
+                secret_path.write_text(str(uuid.uuid4()) + '\n')
+                os.chmod(secret_path, 0o600)
+                subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
+                logger.info(f"✓ Created Varnish admin secret at {secret_path}")
+
         try:
             subprocess.run(['systemctl', 'daemon-reload'], check=True)
             subprocess.run(['systemctl', 'enable', 'teamcache.service'], check=True)
