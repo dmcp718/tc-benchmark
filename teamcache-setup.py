@@ -1970,6 +1970,8 @@ volumes:
                 varnish_etc = Path('/etc/varnish')
                 varnish_etc.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(license_src, varnish_etc / "varnish-enterprise.lic")
+                # Fix SELinux context for the license file
+                subprocess.run(['restorecon', '-v', str(varnish_etc / "varnish-enterprise.lic")], capture_output=True)
                 logger.info(f"Copied license from {license_src} to {varnish_etc}")
                 console.print(f"  ✓ Copied license file to /etc/varnish/")
             else:
