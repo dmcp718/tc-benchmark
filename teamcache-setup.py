@@ -1239,46 +1239,11 @@ class TeamCacheSetup:
                 if version_result.returncode == 0:
                     console.print(f"[#9ca3af]{version_result.stderr.splitlines()[0]}[/#9ca3af]\n")
 
-            # Generate secret file if it doesn't exist
-            self.generate_varnish_secret()
-
             return True
 
         except Exception as e:
             console.print(f"[#ef4444]Error installing Varnish: {e}[/#ef4444]")
             return False
-
-    def generate_varnish_secret(self) -> bool:
-        """Generate Varnish secret file for admin CLI authentication"""
-        secret_path = Path('/etc/varnish/secret')
-
-        # Skip if already exists
-        if secret_path.exists():
-            logger.info("Varnish secret file already exists, skipping")
-            return True
-
-        # Ensure directory exists
-        secret_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Generate random secret (UUID format)
-        import uuid
-        secret = str(uuid.uuid4())
-
-        # Write secret file
-        with open(secret_path, 'w') as f:
-            f.write(secret + '\n')
-
-        # Set proper permissions (readable by root and varnish user only)
-        os.chmod(secret_path, 0o640)
-
-        # Set ownership to varnish user if it exists
-        try:
-            subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
-        except:
-            pass  # varnish user may not exist yet
-
-        logger.info(f"Generated Varnish secret file at {secret_path}")
-        return True
 
     def generate_default_vcl(self) -> bool:
         """Generate default.vcl for native Varnish deployment"""

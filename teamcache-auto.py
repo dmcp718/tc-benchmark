@@ -382,52 +382,10 @@ WantedBy=multi-user.target
 
             logger.info("✓ Varnish Enterprise installed")
 
-            # Generate secret file
-            self.generate_varnish_secret()
-
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to install Varnish: {e}")
             return False
-
-    def generate_varnish_secret(self) -> bool:
-        """Generate Varnish secret file for admin CLI authentication"""
-        if self.deployment_mode != "hybrid":
-            return True
-
-        secret_path = Path('/etc/varnish/secret')
-
-        # Skip if already exists
-        if secret_path.exists():
-            logger.info("Varnish secret file already exists, skipping")
-            return True
-
-        if self.dry_run:
-            logger.info(f"[DRY RUN] Would generate Varnish secret at {secret_path}")
-            return True
-
-        # Ensure directory exists
-        secret_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Generate random secret (UUID format)
-        import uuid
-        secret = str(uuid.uuid4())
-
-        # Write secret file
-        with open(secret_path, 'w') as f:
-            f.write(secret + '\n')
-
-        # Set proper permissions (readable by root and varnish user only)
-        os.chmod(secret_path, 0o640)
-
-        # Set ownership to varnish user
-        try:
-            subprocess.run(['chown', 'varnish:varnish', str(secret_path)], capture_output=True)
-        except:
-            pass
-
-        logger.info(f"✓ Generated Varnish secret file at {secret_path}")
-        return True
 
     def copy_vcl_config(self) -> bool:
         """Copy VCL configuration for hybrid mode"""
