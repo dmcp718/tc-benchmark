@@ -1,0 +1,8 @@
+# Test data
+tst/
+
+# Build artifacts
+tframetest-deb/
+
+# Claude Code directory
+.claude/
