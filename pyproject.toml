@@ -1,0 +1,16 @@
+[project]
+name = "tfbench"
+version = "1.0.0"
+description = "TUI visualizer for tframetest benchmark results"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+tfbench = "tfbench:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

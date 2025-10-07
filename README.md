@@ -70,6 +70,91 @@ tframetest -w 4k -n 10000 -t 8 /mnt/storage/frametest
 tframetest -r -n 10000 -t 8 /mnt/storage/frametest
 ```
 
+## tfbench - TUI Benchmark Visualizer
+
+This repository includes **tfbench**, a TUI (Terminal User Interface) tool that runs tframetest benchmarks and displays beautiful visual results using Rich.
+
+### Features
+
+- 🎨 **Rich TUI visualizations** - Bar charts, tables, and sparklines
+- 📊 **Comprehensive metrics** - Throughput, latency, FPS comparisons
+- 🔍 **Performance insights** - Automatic calculation of cache speedup and ratios
+- 🚀 **Automated testing** - Runs full benchmark suite (1 write + 2 reads)
+- ⚡ **Real-time progress** - Live progress indicators during test execution
+
+### Installation
+
+```bash
+# Requires uv (https://github.com/astral-sh/uv)
+# If you don't have uv installed:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Quick Start
+
+```bash
+# Run full benchmark suite with visual output
+uv run tfbench.py -w 4k -n 500 -t 8 /media/tc-mngr/tftest
+
+# Run with CSV export
+uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
+
+# Custom configuration with more read iterations
+uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --reads 4
+
+# Larger test with extended timeout (for slow storage)
+uv run tfbench.py -w 4k -n 2000 -t 16 /mnt/storage --timeout 3600
+```
+
+### tfbench Options
+
+```
+Options:
+  -w, --write-size SIZE    Frame size (default: 4k)
+  -n, --frames COUNT       Number of frames (default: 500)
+  -t, --threads COUNT      Number of threads (default: 8)
+  --reads COUNT            Number of read tests (default: 2)
+  --timeout SECONDS        Timeout per test in seconds (default: 1800 = 30 min)
+  --csv FILE               Export results to CSV file
+  --parse FILE             Parse existing tframetest output (coming soon)
+  target_dir               Target directory for tests
+```
+
+### Output Example
+
+tfbench displays:
+
+1. **Throughput Comparison** - Visual bar chart comparing write and read performance
+2. **Performance Insights** - Comprehensive stats including:
+   - **Write Performance**: Throughput, latency (min/avg/max), total time
+   - **Read Performance**: Cache speedup, read/write ratios, per-read stats
+   - Shows all individual read test results with cache indicators
+3. **Latency Statistics** - Min/avg/max/range completion times in clear table format
+4. **Detailed Statistics** - Complete table with all metrics
+
+The tool automatically detects cache behavior (cold vs warm cache) and calculates performance ratios. Write statistics are prominently displayed to help characterize deployment environment storage performance.
+
+### CSV Export
+
+tfbench can export results to CSV format for further analysis or integration with other tools:
+
+```bash
+uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
+```
+
+**CSV format includes:**
+- Metadata: timestamp, target directory, frame size, threads
+- Detailed results: All metrics for each test (write/read)
+- Performance insights: Cache speedup, read/write ratios, latency improvements
+- All timing data in both nanoseconds and seconds
+
+### Use Cases
+
+- **Storage benchmarking** - Compare different storage devices
+- **Cache analysis** - Visualize caching effects on read performance
+- **Performance regression testing** - Track performance over time
+- **Media workflow validation** - Ensure adequate I/O performance
+
 ## Technical Details
 
 ### Static Linking

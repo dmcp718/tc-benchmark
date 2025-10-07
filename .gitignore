@@ -6,3 +6,29 @@ tframetest-deb/
 
 # Claude Code directory
 .claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# uv
+.uv/
+uv.lock
+
+# Test files
+test_output.txt
+test_visualizer.py
+test_csv_export.py
+test_results.csv
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
