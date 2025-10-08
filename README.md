@@ -144,7 +144,7 @@ tframetest -r -n 10000 -t 8 /mnt/storage/frametest
 
 ## tfbench - TUI Benchmark Visualizer
 
-This repository includes **tfbench**, a TUI (Terminal User Interface) tool that runs tframetest benchmarks and displays beautiful visual results using Rich.
+This repository includes **tfbench**, a TUI (Terminal User Interface) tool that runs tframetest benchmarks and displays visual results using Rich.
 
 **⚠️ Note:** `tfbench.py` is for **Linux/macOS only**. Windows users can use tframetest.exe directly from the command line.
 
