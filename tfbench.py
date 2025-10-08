@@ -146,6 +146,9 @@ class BenchmarkRunner:
 
             return parsed
 
+        except KeyboardInterrupt:
+            self.console.print(f"\n[bold yellow]⚠ {operation} test interrupted by user[/bold yellow]")
+            raise
         except subprocess.TimeoutExpired as e:
             self.console.print(f"[bold red]Error:[/bold red] Test timed out after {timeout}s")
             # Try to parse partial output if available
@@ -561,14 +564,18 @@ Examples:
 
     # Run benchmark suite
     runner = BenchmarkRunner(console)
-    results = runner.run_benchmark_suite(
-        args.write_size,
-        args.frames,
-        args.threads,
-        args.target_dir,
-        args.reads,
-        args.timeout
-    )
+    try:
+        results = runner.run_benchmark_suite(
+            args.write_size,
+            args.frames,
+            args.threads,
+            args.target_dir,
+            args.reads,
+            args.timeout
+        )
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]Benchmark interrupted by user. Exiting cleanly.[/bold yellow]")
+        return 130  # Standard exit code for SIGINT
 
     if not results:
         console.print("[bold red]No benchmark results obtained[/bold red]")
