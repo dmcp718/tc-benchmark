@@ -269,11 +269,11 @@ class BenchmarkVisualizer:
     def create_latency_chart(self, results: list[BenchmarkResult]) -> Panel:
         """Create latency comparison chart"""
         table = Table(show_header=True, header_style="bold magenta", border_style="blue")
-        table.add_column("Test", style="bold", width=12)
-        table.add_column("Min (ms)", justify="right", width=12)
-        table.add_column("Avg (ms)", justify="right", width=12)
-        table.add_column("Max (ms)", justify="right", width=12)
-        table.add_column("Range (ms)", justify="right", width=12)
+        table.add_column("Test", style="bold")
+        table.add_column("Min (ms)", justify="right")
+        table.add_column("Avg (ms)", justify="right")
+        table.add_column("Max (ms)", justify="right")
+        table.add_column("Range (ms)", justify="right")
 
         for i, result in enumerate(results):
             # Determine label
@@ -348,7 +348,8 @@ class BenchmarkVisualizer:
         # Test configuration
         if results:
             r = results[0]
-            text.append(f"\n[dim]Configuration:[/dim]\n", style="dim")
+            text.append("\n")
+            text.append("Configuration:\n", style="dim")
             text.append(f"  Frames: {r.frames:,} | ", style="dim")
             text.append(f"Data: {r.bytes / (1024**3):.2f} GiB | ", style="dim")
             text.append(f"Threads: {len(read_results) + (1 if write_result else 0)}", style="dim")

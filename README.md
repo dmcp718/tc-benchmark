@@ -66,7 +66,40 @@ tframetest -r -n 1000 -t 4 test_directory
 - `-r` - Read mode
 - `-n COUNT` - Number of frames to write/read
 - `-t THREADS` - Number of threads to use
+- `-l` - List available profiles
 - `--help` - Display all available options
+
+### Available Profiles
+
+tframetest includes predefined profiles for common media frame formats:
+
+| Profile            | Resolution    | Bit Depth | Compression | Frame Size  |
+|--------------------|---------------|-----------|-------------|-------------|
+| SD-32bit-cmp       | 720x576       | 32-bit    | Yes         | ~1.6 MiB    |
+| SD-24bit           | 720x576       | 24-bit    | No          | ~1.2 MiB    |
+| SD-16bit           | 720x576       | 16-bit    | No          | ~0.8 MiB    |
+| HD-32bit-cmp       | 1280x720      | 32-bit    | Yes         | ~3.5 MiB    |
+| HD-24bit           | 1280x720      | 24-bit    | No          | ~2.6 MiB    |
+| FULLHD-32bit-cmp   | 1920x1080     | 32-bit    | Yes         | ~7.9 MiB    |
+| FULLHD-24bit       | 1920x1080     | 24-bit    | No          | ~5.9 MiB    |
+| 2K-32bit-cmp       | 2048x1080     | 32-bit    | Yes         | ~8.4 MiB    |
+| 2K-24bit           | 2048x1080     | 24-bit    | No          | ~6.3 MiB    |
+| 4K-32bit-cmp       | 4096x2160     | 32-bit    | Yes         | ~33.6 MiB   |
+| 4K-24bit           | 4096x2160     | 24-bit    | No          | ~25.2 MiB   |
+| 8K-32bit-cmp       | 7680x4320     | 32-bit    | Yes         | ~126.2 MiB  |
+| 8K-24bit           | 7680x4320     | 24-bit    | No          | ~94.7 MiB   |
+
+**Usage:**
+```bash
+# List all available profiles
+tframetest -l
+
+# Use a specific profile
+tframetest -w 4K-32bit-cmp -n 100 -t 8 /mnt/storage
+
+# Or use custom sizes
+tframetest -w 4k -n 100 -t 8 /mnt/storage
+```
 
 ### Example: Performance Testing
 
