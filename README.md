@@ -27,7 +27,10 @@ cd /path/to/teamcache-setup
 # 2. Add your Varnish Enterprise license file
 cp /path/to/varnish-enterprise.lic .
 
-# 3. Run the setup (requires root)
+# 3. (Optional) Install uv for faster dependency management
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 4. Run the setup (requires root)
 sudo uv run python teamcache-setup.py
 # OR if uv is not installed:
 sudo python3 teamcache-setup.py
