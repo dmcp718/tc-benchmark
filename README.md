@@ -13,11 +13,39 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 
 | Package          | File                                        | Size | Target Systems                     |
 |------------------|---------------------------------------------|------|------------------------------------|
+| **macOS ARM64**  | `tframetest-3025.1.1-macos-arm64.pkg`       | 17K  | macOS 10.13+, Apple Silicon (M1/M2/M3) |
 | Debian/Ubuntu    | `tframetest_3025.1.1_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
 | EL9 RPM          | `tframetest-3025.1.1-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
 | Windows 64-bit   | `tframetest-3025.1.1-win64.zip`             | 219K | Windows 10/11, Server 2016+        |
 
 ## Installation
+
+### macOS (Apple Silicon - M1/M2/M3)
+
+**GUI Installation (Recommended):**
+```bash
+# Double-click the .pkg file in Finder
+open macos-installer/build/tframetest-3025.1.1-macos-arm64.pkg
+```
+
+**Command-Line Installation:**
+```bash
+sudo installer -pkg macos-installer/build/tframetest-3025.1.1-macos-arm64.pkg -target /
+```
+
+**Building the Installer:**
+```bash
+cd macos-installer
+./build-installer.sh
+```
+
+The installer places `tframetest` in `/usr/local/bin/` for system-wide access.
+
+**Auto-Installation via tfbench.py:**
+When running `tfbench.py` on macOS without tframetest installed, it will automatically:
+- Detect if the installer package is available
+- Prompt you to install it interactively
+- Handle the installation with a single confirmation
 
 ### Debian/Ubuntu
 ```bash
@@ -119,6 +147,8 @@ tframetest -r -n 10000 -t 8 /mnt/storage/frametest
 This repository includes **tfbench**, a TUI (Terminal User Interface) tool that runs tframetest benchmarks and displays beautiful visual results using Rich.
 
 **⚠️ Note:** `tfbench.py` is for **Linux/macOS only**. Windows users can use tframetest.exe directly from the command line.
+
+**🍎 macOS Users:** tfbench.py includes intelligent installer detection. If tframetest is not installed, it will automatically detect the installer package and prompt you to install it interactively.
 
 ### Features
 
@@ -241,6 +271,11 @@ These packages were built with:
 - Build Date: October 5, 2025
 
 ## Uninstallation
+
+### macOS
+```bash
+sudo rm /usr/local/bin/tframetest
+```
 
 ### Debian/Ubuntu
 ```bash
