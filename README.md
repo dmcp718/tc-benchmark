@@ -90,7 +90,7 @@ tframetest -r -n 1000 -t 4 test_directory
 
 ### Command Options
 
-- `-w SIZE` - Write mode with frame size (e.g., 2k, 4k, 1m)
+- `-w SIZE` - Write mode with frame size (e.g., 2k, 4k, 8k)
 - `-r` - Read mode
 - `-n COUNT` - Number of frames to write/read
 - `-t THREADS` - Number of threads to use
