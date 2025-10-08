@@ -7,6 +7,8 @@ A tool to run and visualize tframetest benchmarks with rich TUI components.
 
 import argparse
 import csv
+import os
+import platform
 import re
 import subprocess
 import sys
@@ -99,6 +101,25 @@ class BenchmarkRunner:
 
     def __init__(self, console: Console):
         self.console = console
+        self.tframetest_cmd = self._find_tframetest()
+
+    def _find_tframetest(self) -> str:
+        """Find the appropriate tframetest binary for the current platform"""
+        script_dir = Path(__file__).parent
+
+        # Check for platform-specific binaries first
+        if platform.system() == "Darwin":
+            macos_binary = script_dir / "tframetest-macos"
+            if macos_binary.exists():
+                return str(macos_binary)
+
+        # Check for local binary
+        local_binary = script_dir / "tframetest"
+        if local_binary.exists() and local_binary.is_file():
+            return str(local_binary)
+
+        # Fall back to PATH
+        return "tframetest"
 
     def run_test(self, write_size: str, num_frames: int, threads: int,
                  target_dir: str, is_read: bool = False, timeout: int = 1800) -> Optional[BenchmarkResult]:
@@ -109,7 +130,7 @@ class BenchmarkRunner:
         """
 
         # Build command
-        cmd = ["tframetest"]
+        cmd = [self.tframetest_cmd]
         if is_read:
             cmd.extend(["-r"])
         else:
