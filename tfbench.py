@@ -10,6 +10,7 @@ import csv
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, asdict
@@ -107,8 +108,27 @@ class BenchmarkRunner:
         """Find the appropriate tframetest binary for the current platform"""
         script_dir = Path(__file__).parent
 
-        # Check for platform-specific binaries first
+        # On macOS, check for system-installed binary first
         if platform.system() == "Darwin":
+            # Check if tframetest is installed in /usr/local/bin (via installer)
+            system_binary = Path("/usr/local/bin/tframetest")
+            if system_binary.exists():
+                return str(system_binary)
+
+            # Check PATH
+            which_result = shutil.which("tframetest")
+            if which_result:
+                return which_result
+
+            # Not installed - check if installer is available
+            installer_pkg = script_dir / "macos-installer" / "build" / "tframetest-3025.1.1-macos-arm64.pkg"
+            if installer_pkg.exists():
+                self._prompt_install_macos(installer_pkg)
+                # After prompting, check again if user installed
+                if system_binary.exists():
+                    return str(system_binary)
+
+            # Fall back to local binary
             macos_binary = script_dir / "tframetest-macos"
             if macos_binary.exists():
                 return str(macos_binary)
@@ -120,6 +140,43 @@ class BenchmarkRunner:
 
         # Fall back to PATH
         return "tframetest"
+
+    def _prompt_install_macos(self, installer_path: Path) -> None:
+        """Prompt user to install tframetest on macOS"""
+        self.console.print()
+        self.console.print("[yellow]⚠ tframetest is not installed on your system[/yellow]")
+        self.console.print()
+        self.console.print(f"An installer package is available at:")
+        self.console.print(f"  [cyan]{installer_path}[/cyan]")
+        self.console.print()
+        self.console.print("Would you like to install it now? This will:")
+        self.console.print("  • Install tframetest to /usr/local/bin/")
+        self.console.print("  • Require administrator password")
+        self.console.print()
+
+        response = input("Install now? [y/N]: ").strip().lower()
+
+        if response in ['y', 'yes']:
+            self.console.print()
+            self.console.print("[cyan]Installing tframetest...[/cyan]")
+            try:
+                result = subprocess.run(
+                    ["sudo", "installer", "-pkg", str(installer_path), "-target", "/"],
+                    check=True
+                )
+                self.console.print("[green]✓[/green] tframetest installed successfully!")
+                self.console.print()
+            except subprocess.CalledProcessError as e:
+                self.console.print(f"[red]✗[/red] Installation failed: {e}")
+                self.console.print()
+        else:
+            self.console.print()
+            self.console.print("[yellow]Skipping installation.[/yellow]")
+            self.console.print("You can install it later by running:")
+            self.console.print(f"  [dim]sudo installer -pkg {installer_path} -target /[/dim]")
+            self.console.print()
+            self.console.print("Or double-click the .pkg file to use the GUI installer.")
+            self.console.print()
 
     def run_test(self, write_size: str, num_frames: int, threads: int,
                  target_dir: str, is_read: bool = False, timeout: int = 1800) -> Optional[BenchmarkResult]:

@@ -1,0 +1,9 @@
+Welcome to tframetest Installer
+
+This installer will install tframetest version 3025.1.1 on your Mac.
+
+tframetest is a tool to test and benchmark writing/reading media frames to/from a disk.
+
+The binary will be installed to /usr/local/bin/tframetest
+
+Click Continue to proceed with the installation.

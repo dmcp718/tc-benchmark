@@ -3,6 +3,7 @@ tst/
 
 # Build artifacts
 tframetest-deb/
+macos-installer/build/
 
 # Claude Code directory and config
 .claude/

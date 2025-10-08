@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Postinstall script for tframetest
+# Ensures proper permissions and verifies installation
+
+set -e
+
+INSTALL_PATH="/usr/local/bin/tframetest"
+
+# Ensure the binary is executable
+if [ -f "$INSTALL_PATH" ]; then
+    chmod 755 "$INSTALL_PATH"
+    echo "tframetest installed successfully to $INSTALL_PATH"
+
+    # Verify the binary works
+    if "$INSTALL_PATH" --version >/dev/null 2>&1; then
+        echo "tframetest version: $($INSTALL_PATH --version | head -1)"
+    else
+        echo "Warning: tframetest binary may not be functioning correctly"
+    fi
+else
+    echo "Error: Installation failed - binary not found at $INSTALL_PATH"
+    exit 1
+fi
+
+exit 0
