@@ -45,8 +45,11 @@ Shows visual bar chart of MiB/s for each test:
 - **Write** (green) - Initial write performance
 - **Read #1** (blue) - First read, typically shows "cold cache" performance
 - **Read #2** (cyan) - Second read, typically shows "warm cache" performance
+- **⚡ RAM CACHE** (yellow) - Indicates read speeds >10 GB/s (data served from RAM, not disk)
 
 The bar length is proportional to throughput, making it easy to compare at a glance.
+
+**Important:** If you see "⚡ RAM CACHE" indicators, the read performance represents the speed of accessing data from system RAM, not the actual storage device. This is valuable for understanding cache behavior but doesn't reflect disk I/O performance.
 
 ### 2. Performance Insights
 
@@ -181,6 +184,58 @@ uv run tfbench.py -w 4k -n 500 -t 8 /media/storage
 uv run tfbench.py -w 1m -n 100 -t 8 /media/storage
 ```
 
+## Understanding Cache vs Disk Performance
+
+### What is RAM Cache?
+
+Modern operating systems automatically cache recently accessed file data in RAM for faster subsequent access. When tfbench detects read speeds >10 GB/s, it indicates the data is being served from RAM cache rather than the storage device.
+
+**Typical speeds by source:**
+- **RAM cache**: 50-100+ GB/s (especially on Apple Silicon)
+- **NVMe SSD**: 2-7 GB/s
+- **SATA SSD**: 0.5-0.6 GB/s
+- **HDD**: 0.1-0.2 GB/s
+
+### When Cache Detection Appears
+
+You'll see "⚡ RAM CACHE" indicators when:
+- Testing with small datasets that fit entirely in RAM
+- Running multiple read tests without clearing cache between runs
+- Your system has sufficient RAM to cache the test dataset
+- Recent file access allows the OS to pre-cache data
+
+### Measuring Actual Disk Performance
+
+To measure true storage I/O performance instead of cache:
+
+**Option 1: Clear cache before each test (requires sudo)**
+```bash
+# macOS - Clear disk cache
+sudo purge
+
+# Linux - Drop page cache
+sync
+echo 3 | sudo tee /proc/sys/vm/drop_caches
+```
+
+**Option 2: Use larger datasets**
+```bash
+# If you have 16GB RAM, use enough frames to exceed it
+# Example: 4KB frames, 5 million frames = ~20GB
+uv run tfbench.py -w 4k -n 5000000 -t 8 /mnt/storage --timeout 7200
+```
+
+**Option 3: Test on system with less RAM**
+- Use a test system with limited RAM relative to dataset size
+
+### Cache Performance is Still Valuable!
+
+While cache speeds don't reflect disk performance, they ARE useful for:
+- Understanding how your application will perform with cached data
+- Validating that OS caching is working properly
+- Comparing cache effectiveness across different systems
+- Real-world workloads where data is frequently re-accessed
+
 ## Interpreting Results
 
 ### Good Performance Indicators
@@ -196,6 +251,12 @@ uv run tfbench.py -w 1m -n 100 -t 8 /media/storage
 - **High max latency** - System may have I/O contention or background processes
 - **Write >> Read speeds** - Unusual; may indicate write caching without read caching
 - **No thread scaling** - May indicate single-threaded bottleneck
+
+### Distinguishing Disk vs Cache Performance
+
+- **Disk performance**: First write test and reads after cache clear (typically <10 GB/s)
+- **Cache performance**: Subsequent reads without cache clear (often >10 GB/s on modern systems)
+- **Mixed**: Read #1 may show partial cache (some blocks cached, some from disk)
 
 ## Tips
 

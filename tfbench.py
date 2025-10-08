@@ -43,6 +43,16 @@ class BenchmarkResult:
     avg_ms: float
     max_ms: float
 
+    @property
+    def is_cached(self) -> bool:
+        """Detect if this result is likely from RAM cache rather than disk I/O.
+
+        Reads exceeding 10 GB/s (10240 MiB/s) are almost certainly hitting RAM cache
+        rather than actual disk/SSD. Even the fastest NVMe SSDs top out around 7-8 GB/s.
+        """
+        CACHE_THRESHOLD_MIB_S = 10240  # 10 GB/s
+        return self.operation == "read" and self.mib_per_sec > CACHE_THRESHOLD_MIB_S
+
 
 class TframetestParser:
     """Parse tframetest output into structured data"""
@@ -216,8 +226,14 @@ class BenchmarkRunner:
             # Parse output
             parsed = TframetestParser.parse(result.stdout)
             if parsed:
-                self.console.print(f"[green]✓[/green] {operation} test completed: {parsed.mib_per_sec:.2f} MiB/s")
+                # Add cache indicator for cached reads
+                cache_indicator = " ⚡ [yellow bold]RAM CACHE[/yellow bold]" if parsed.is_cached else ""
+                self.console.print(f"[green]✓[/green] {operation} test completed: {parsed.mib_per_sec:.2f} MiB/s{cache_indicator}")
                 self.console.print(f"[dim]Completed {parsed.frames} frames in {parsed.time_ns / 1e9:.1f}s[/dim]")
+
+                # Warning for cached reads
+                if parsed.is_cached:
+                    self.console.print(f"[yellow]⚠ Speed >{parsed.mib_per_sec/1024:.1f} GB/s indicates RAM cache, not disk I/O[/yellow]")
             else:
                 self.console.print("[bold red]Error:[/bold red] Failed to parse tframetest output")
                 self.console.print(result.stdout)
@@ -296,13 +312,16 @@ class BenchmarkVisualizer:
             if result.operation == "write":
                 label = "Write"
                 color = colors[0]
+                cache_label = ""
             else:
                 read_num = sum(1 for r in results[:i+1] if r.operation == "read")
                 label = f"Read #{read_num}"
                 color = colors[min(read_num, len(colors)-1)]
 
-                # Add cache indicator
-                if read_num == 1:
+                # Add cache indicator with RAM cache detection
+                if result.is_cached:
+                    cache_label = "⚡ [yellow bold]RAM CACHE[/yellow bold]"
+                elif read_num == 1:
                     cache_label = "(cold cache)"
                 elif read_num == 2:
                     cache_label = "(warm cache)"
@@ -318,7 +337,7 @@ class BenchmarkVisualizer:
                 f"[{color}]{label}[/{color}]",
                 f"[{color}]{bar}[/{color}]",
                 f"{result.mib_per_sec:.2f}",
-                cache_label if result.operation == "read" else ""
+                cache_label
             )
 
         return Panel(table, title="[bold]Throughput Comparison (MiB/s)[/bold]", border_style="blue")
@@ -397,8 +416,13 @@ class BenchmarkVisualizer:
 
             # Show all read results
             for i, read_result in enumerate(read_results, 1):
-                cache_type = "(cold)" if i == 1 else "(warm)" if i == 2 else f"(read {i})"
-                text.append(f"  • Read #{i} {cache_type}: ", style="dim")
+                if read_result.is_cached:
+                    cache_type = "⚡ RAM CACHE"
+                    cache_style = "yellow bold"
+                else:
+                    cache_type = "(cold)" if i == 1 else "(warm)" if i == 2 else f"(read {i})"
+                    cache_style = "dim"
+                text.append(f"  • Read #{i} {cache_type}: ", style=cache_style)
                 text.append(f"{read_result.mib_per_sec:.2f} MiB/s, ", style="cyan")
                 text.append(f"{read_result.avg_ms:.1f} ms avg\n", style="dim")
 
@@ -492,6 +516,25 @@ class BenchmarkVisualizer:
         self.console.print()
         self.console.print(self.create_detailed_table(results))
         self.console.print()
+
+        # Add RAM cache warning if detected
+        cached_reads = [r for r in results if r.is_cached]
+        if cached_reads:
+            warning = Text()
+            warning.append("⚡ RAM CACHE DETECTED\n\n", style="bold yellow")
+            warning.append("Read speeds exceeding 10 GB/s indicate the data was served from RAM cache, ", style="yellow")
+            warning.append("not from the actual disk/SSD. ", style="yellow")
+            warning.append("This shows cache performance, not storage I/O performance.\n\n", style="yellow")
+            warning.append("To measure actual disk performance:\n", style="dim")
+            warning.append("  • Use a larger dataset that exceeds available RAM\n", style="dim")
+            warning.append("  • Clear system cache before testing (macOS: ", style="dim")
+            warning.append("sudo purge", style="cyan")
+            warning.append(", Linux: ", style="dim")
+            warning.append("sync; echo 3 | sudo tee /proc/sys/vm/drop_caches", style="cyan")
+            warning.append(")\n", style="dim")
+            warning.append("  • Test on a different system with less RAM\n", style="dim")
+            self.console.print(Panel(warning, title="[bold yellow]⚠ Performance Note[/bold yellow]", border_style="yellow"))
+            self.console.print()
 
     def export_csv(self, results: list[BenchmarkResult], csv_path: str,
                    target_dir: str, write_size: str, threads: int) -> bool:
