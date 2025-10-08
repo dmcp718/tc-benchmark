@@ -4,8 +4,9 @@ tst/
 # Build artifacts
 tframetest-deb/
 
-# Claude Code directory
+# Claude Code directory and config
 .claude/
+CLAUDE.md
 
 # Python
 __pycache__/
