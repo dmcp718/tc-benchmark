@@ -52,10 +52,12 @@ When running `tfbench.py` on macOS without tframetest installed, it will automat
 sudo dpkg -i tframetest_3025.1.1_amd64.deb
 ```
 
-### RHEL/Rocky/AlmaLinux 9
+### RHEL/Rocky/AlmaLinux 9 / Amazon Linux 2023
 ```bash
 sudo rpm -ivh tframetest-3025.1.1-1.el9.x86_64.rpm
 ```
+
+**Note for Amazon Linux 2023:** The EL9 RPM is fully compatible with Amazon Linux 2023.
 
 ### Windows 10/11
 ```powershell
@@ -168,11 +170,42 @@ This repository includes **tfbench**, a TUI (Terminal User Interface) tool that 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+**Amazon Linux 2023 (AWS EC2):**
+
+When deployed via the TeamCache AWS deployment automation, tfbench and all dependencies are pre-installed. Access your instance via SSM Session Manager:
+
+```bash
+# Connect to instance
+aws ssm start-session --target i-xxxxxxxxxxxxx --region us-east-1
+
+# Run benchmarks (virtual environment is pre-configured)
+tfbench -w 4k -n 500 -t 8 /cache/disk1
+```
+
+**Manual setup on Amazon Linux 2023:**
+```bash
+# Install uv system-wide
+sudo bash -c 'curl -LsSf https://astral.sh/uv/install.sh | env INSTALLER_NO_MODIFY_PATH=1 sh && \
+  mv /root/.local/bin/uv /usr/local/bin/uv && \
+  mv /root/.local/bin/uvx /usr/local/bin/uvx'
+
+# Create virtual environment and install dependencies
+sudo bash -c 'cd /opt/tfbench && uv venv .venv && \
+  uv pip install -r <(echo "rich>=13.7.0") && \
+  chmod -R 755 .venv'
+
+# Run tfbench (requires sudo if .venv not pre-created)
+cd /opt/tfbench && sudo uv run tfbench.py -w 4k -n 500 -t 8 /cache/disk1
+```
+
 ### Quick Start
 
 ```bash
 # Run full benchmark suite with visual output
 uv run tfbench.py -w 4k -n 500 -t 8 /media/tc-mngr/tftest
+
+# Amazon Linux 2023 (if deployed via automation)
+tfbench -w 4k -n 500 -t 8 /cache/disk1
 
 # Run with CSV export
 uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
