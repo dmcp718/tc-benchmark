@@ -191,10 +191,10 @@ Options:
   -w, --write-size SIZE    Frame size (default: 4k)
   -n, --frames COUNT       Number of frames (default: 500)
   -t, --threads COUNT      Number of threads (default: 8)
-  --reads COUNT            Number of read tests (default: 2)
+  --reads COUNT            Number of read tests (default: 3)
   --timeout SECONDS        Timeout per test in seconds (default: 1800 = 30 min)
   --csv FILE               Export results to CSV file
-  --parse FILE             Parse existing tframetest output (coming soon)
+  --parse FILE             Parse and visualize existing tframetest output file
   target_dir               Target directory for tests
 ```
 
@@ -225,6 +225,28 @@ uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
 - Detailed results: All metrics for each test (write/read)
 - Performance insights: Cache speedup, read/write ratios, latency improvements
 - All timing data in both nanoseconds and seconds
+
+### Parsing Existing Output
+
+tfbench can parse and visualize output from tframetest that was run separately:
+
+```bash
+# Run tframetest directly and save output
+tframetest -w 4k -n 500 -t 8 /mnt/storage > results.txt
+tframetest -r -n 500 -t 8 /mnt/storage >> results.txt
+tframetest -r -n 500 -t 8 /mnt/storage >> results.txt
+
+# Visualize the saved results
+uv run tfbench.py --parse results.txt
+
+# Parse and export to CSV
+uv run tfbench.py --parse results.txt --csv analysis.csv
+```
+
+This is useful for:
+- Analyzing results from tests run on remote machines
+- Re-visualizing old benchmark results
+- Processing output from automated test scripts
 
 ### Use Cases
 

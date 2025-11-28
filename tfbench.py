@@ -106,6 +106,67 @@ class TframetestParser:
             print(f"Parse error: {e}", file=sys.stderr)
             return None
 
+    @classmethod
+    def parse_file(cls, filepath: str) -> list[BenchmarkResult]:
+        """Parse a file containing one or more tframetest outputs.
+
+        The file can contain multiple test results concatenated together.
+        Each result block starts with 'Profile:' line.
+
+        Returns:
+            List of BenchmarkResult objects parsed from the file
+        """
+        try:
+            with open(filepath, 'r') as f:
+                content = f.read()
+        except (IOError, OSError) as e:
+            print(f"Error reading file: {e}", file=sys.stderr)
+            return []
+
+        results = []
+
+        # Split content into blocks starting with "Profile:"
+        # We use a lookahead to keep the "Profile:" in each block
+        blocks = re.split(r'(?=Profile:)', content)
+
+        for block in blocks:
+            block = block.strip()
+            if not block or not block.startswith('Profile:'):
+                continue
+
+            result = cls.parse(block)
+            if result:
+                results.append(result)
+
+        return results
+
+    @classmethod
+    def extract_info_from_profile(cls, profile: str) -> tuple[str, int]:
+        """Extract frame size and thread count from profile string.
+
+        Profile format examples:
+            "4k-64k-header, 8 threads"
+            "2k-64k-header, 16 threads"
+            "1m-64k-header, 4 threads"
+
+        Returns:
+            Tuple of (frame_size, threads) with defaults if not found
+        """
+        frame_size = "unknown"
+        threads = 1
+
+        # Extract frame size (e.g., "4k", "2k", "1m")
+        size_match = re.match(r'^(\d+[kmgKMG]?)', profile)
+        if size_match:
+            frame_size = size_match.group(1)
+
+        # Extract thread count
+        thread_match = re.search(r'(\d+)\s*threads?', profile, re.IGNORECASE)
+        if thread_match:
+            threads = int(thread_match.group(1))
+
+        return frame_size, threads
+
 
 class BenchmarkRunner:
     """Execute tframetest and capture results"""
@@ -651,8 +712,8 @@ Examples:
                        help="Number of frames to test (default: 500)")
     parser.add_argument("-t", "--threads", type=int, default=8,
                        help="Number of threads to use")
-    parser.add_argument("--reads", type=int, default=2,
-                       help="Number of read tests to run (default: 2)")
+    parser.add_argument("--reads", type=int, default=3,
+                       help="Number of read tests to run (default: 3)")
     parser.add_argument("--timeout", type=int, default=1800,
                        help="Timeout per test in seconds (default: 1800 = 30 minutes)")
     parser.add_argument("--csv", metavar="FILE",
@@ -668,9 +729,39 @@ Examples:
 
     # Parse mode
     if args.parse:
-        console.print(f"[yellow]Parsing mode not yet implemented[/yellow]")
-        console.print(f"TODO: Parse {args.parse}")
-        return 1
+        parse_path = Path(args.parse)
+        if not parse_path.exists():
+            console.print(f"[bold red]Error:[/bold red] File not found: {args.parse}")
+            return 1
+
+        console.print(f"[cyan]Parsing tframetest output from:[/cyan] {args.parse}")
+        results = TframetestParser.parse_file(args.parse)
+
+        if not results:
+            console.print("[bold red]Error:[/bold red] No valid tframetest results found in file")
+            console.print("[dim]Expected format: tframetest output with 'Profile:', 'Results:', etc.[/dim]")
+            return 1
+
+        console.print(f"[green]✓[/green] Parsed {len(results)} test result(s)")
+
+        # Extract frame size and threads from first result's profile
+        frame_size, threads = TframetestParser.extract_info_from_profile(results[0].profile)
+
+        # Display visualization
+        visualizer = BenchmarkVisualizer(console)
+        visualizer.display_results(results, f"[parsed from {parse_path.name}]", frame_size, threads)
+
+        # Export to CSV if requested
+        if args.csv:
+            csv_path = args.csv
+            console.print(f"\n[cyan]Exporting results to CSV:[/cyan] {csv_path}")
+            if visualizer.export_csv(results, csv_path, str(parse_path), frame_size, threads):
+                console.print(f"[green]✓[/green] CSV exported successfully")
+            else:
+                console.print(f"[red]✗[/red] Failed to export CSV")
+                return 1
+
+        return 0
 
     # Run mode
     if not args.target_dir:
