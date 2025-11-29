@@ -153,14 +153,14 @@ class TframetestParser:
             Tuple of (frame_size, threads) with defaults if not found
         """
         frame_size = "unknown"
-        threads = 1
+        threads = 0  # 0 means not found/not specified
 
         # Extract frame size (e.g., "4k", "2k", "1m")
         size_match = re.match(r'^(\d+[kmgKMG]?)', profile)
         if size_match:
             frame_size = size_match.group(1)
 
-        # Extract thread count
+        # Extract thread count (only if present in profile)
         thread_match = re.search(r'(\d+)\s*threads?', profile, re.IGNORECASE)
         if thread_match:
             threads = int(thread_match.group(1))
@@ -493,8 +493,9 @@ class BenchmarkVisualizer:
             text.append("\n")
             text.append("Configuration:\n", style="dim")
             text.append(f"  Frames: {r.frames:,} | ", style="dim")
-            text.append(f"Data: {r.bytes / (1024**3):.2f} GiB | ", style="dim")
-            text.append(f"Threads: {threads}", style="dim")
+            text.append(f"Data: {r.bytes / (1024**3):.2f} GiB", style="dim")
+            if threads:
+                text.append(f" | Threads: {threads}", style="dim")
 
         return Panel(text, title="[bold]Performance Insights[/bold]", border_style="green")
 
@@ -560,11 +561,14 @@ class BenchmarkVisualizer:
         summary.append(f"Frames: ", style="bold")
         # Show frame range if inconsistent
         if len(set(frame_counts)) > 1:
-            summary.append(f"{min(frame_counts):,}-{max(frame_counts):,} | ", style="yellow")
+            summary.append(f"{min(frame_counts):,}-{max(frame_counts):,}", style="yellow")
         else:
-            summary.append(f"{results[0].frames:,} | ", style="magenta")
-        summary.append(f"Threads: ", style="bold")
-        summary.append(f"{threads}", style="green")
+            summary.append(f"{results[0].frames:,}", style="magenta")
+        # Only show threads if specified (non-zero)
+        if threads:
+            summary.append(f" | ", style="dim")
+            summary.append(f"Threads: ", style="bold")
+            summary.append(f"{threads}", style="green")
         self.console.print(Panel(summary, border_style="blue"))
         self.console.print()
 
