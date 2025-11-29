@@ -433,7 +433,7 @@ class BenchmarkVisualizer:
 
         return Panel(table, title="[bold]Latency Statistics[/bold]", border_style="blue")
 
-    def create_insights_panel(self, results: list[BenchmarkResult]) -> Panel:
+    def create_insights_panel(self, results: list[BenchmarkResult], threads: int = 1) -> Panel:
         """Calculate and display performance insights"""
         text = Text()
 
@@ -494,7 +494,7 @@ class BenchmarkVisualizer:
             text.append("Configuration:\n", style="dim")
             text.append(f"  Frames: {r.frames:,} | ", style="dim")
             text.append(f"Data: {r.bytes / (1024**3):.2f} GiB | ", style="dim")
-            text.append(f"Threads: {len(read_results) + (1 if write_result else 0)}", style="dim")
+            text.append(f"Threads: {threads}", style="dim")
 
         return Panel(text, title="[bold]Performance Insights[/bold]", border_style="green")
 
@@ -571,7 +571,7 @@ class BenchmarkVisualizer:
         # Main visualizations
         self.console.print(self.create_throughput_chart(results))
         self.console.print()
-        self.console.print(self.create_insights_panel(results))
+        self.console.print(self.create_insights_panel(results, threads))
         self.console.print()
         self.console.print(self.create_latency_chart(results))
         self.console.print()
