@@ -710,8 +710,8 @@ Examples:
                        help="Frame size for write test (e.g., 2k, 4k, 1m)")
     parser.add_argument("-n", "--frames", type=int, default=500,
                        help="Number of frames to test (default: 500)")
-    parser.add_argument("-t", "--threads", type=int, default=8,
-                       help="Number of threads to use")
+    parser.add_argument("-t", "--threads", type=int, default=0,
+                       help="Number of threads (default: 8 for run mode, auto-detect for parse mode)")
     parser.add_argument("--reads", type=int, default=3,
                        help="Number of read tests to run (default: 3)")
     parser.add_argument("--timeout", type=int, default=1800,
@@ -744,8 +744,11 @@ Examples:
 
         console.print(f"[green]✓[/green] Parsed {len(results)} test result(s)")
 
-        # Extract frame size and threads from first result's profile
-        frame_size, threads = TframetestParser.extract_info_from_profile(results[0].profile)
+        # Extract frame size from first result's profile
+        frame_size, profile_threads = TframetestParser.extract_info_from_profile(results[0].profile)
+
+        # Use --threads if provided, otherwise try to extract from profile
+        threads = args.threads if args.threads else profile_threads
 
         # Display visualization
         visualizer = BenchmarkVisualizer(console)
@@ -775,13 +778,16 @@ Examples:
         console.print(f"[bold red]Error:[/bold red] Target directory does not exist: {args.target_dir}")
         return 1
 
+    # Default to 8 threads for run mode if not specified
+    threads = args.threads if args.threads else 8
+
     # Run benchmark suite
     runner = BenchmarkRunner(console)
     try:
         results = runner.run_benchmark_suite(
             args.write_size,
             args.frames,
-            args.threads,
+            threads,
             args.target_dir,
             args.reads,
             args.timeout
@@ -796,13 +802,13 @@ Examples:
 
     # Display visualization
     visualizer = BenchmarkVisualizer(console)
-    visualizer.display_results(results, args.target_dir, args.write_size, args.threads)
+    visualizer.display_results(results, args.target_dir, args.write_size, threads)
 
     # Export to CSV if requested
     if args.csv:
         csv_path = args.csv
         console.print(f"\n[cyan]Exporting results to CSV:[/cyan] {csv_path}")
-        if visualizer.export_csv(results, csv_path, args.target_dir, args.write_size, args.threads):
+        if visualizer.export_csv(results, csv_path, args.target_dir, args.write_size, threads):
             console.print(f"[green]✓[/green] CSV exported successfully")
         else:
             console.print(f"[red]✗[/red] Failed to export CSV")
