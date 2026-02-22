@@ -92,6 +92,8 @@ tframetest -r -n 1000 -t 4 test_directory
 
 - `-w SIZE` - Write mode with frame size (e.g., 2k, 4k, 8k)
 - `-r` - Read mode
+- `-s FILE` - Streaming mode: write/read frames to a single file
+- `-z SIZE` - Frame size in bytes (required for streaming mode)
 - `-n COUNT` - Number of frames to write/read
 - `-t THREADS` - Number of threads to use
 - `-l` - List available profiles
@@ -140,6 +142,33 @@ tframetest -w 4k -n 10000 -t 8 /mnt/storage/frametest
 
 # Read them back and measure performance
 tframetest -r -n 10000 -t 8 /mnt/storage/frametest
+```
+
+### Streaming Mode
+
+Streaming mode (`-s`) writes/reads frames to a single file instead of individual files per frame. Use `-z` to specify the frame size in bytes and `-s` to specify the target file.
+
+```bash
+# Write 100 frames of 4 MB each to a single file
+tframetest -w -z 4194304 -s /mnt/storage/stream_test.bin -n 100 -t 1
+
+# Read them back
+tframetest -r -z 4194304 -s /mnt/storage/stream_test.bin -n 100 -t 1
+```
+
+### Windows Examples
+
+```powershell
+# Multi-file write/read (uses FILE_FLAG_NO_BUFFERING to bypass RAM cache)
+.\tframetest.exe -w 4k -n 500 -t 4 D:\benchmarks
+.\tframetest.exe -r -n 500 -t 4 D:\benchmarks
+
+# Streaming write/read to a single file
+.\tframetest.exe -w -z 4194304 -s D:\benchmarks\stream_test.bin -n 100 -t 1
+.\tframetest.exe -r -z 4194304 -s D:\benchmarks\stream_test.bin -n 100 -t 1
+
+# List available profiles
+.\tframetest.exe -l
 ```
 
 ## tfbench - TUI Benchmark Visualizer
