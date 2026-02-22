@@ -204,6 +204,16 @@ class BenchmarkRunner:
             if macos_binary.exists():
                 return str(macos_binary)
 
+        # On Windows, check for tframetest.exe in script directory or PATH
+        if platform.system() == "Windows":
+            local_exe = script_dir / "tframetest.exe"
+            if local_exe.exists():
+                return str(local_exe)
+
+            which_result = shutil.which("tframetest")
+            if which_result:
+                return which_result
+
         # Check for local binary
         local_binary = script_dir / "tframetest"
         if local_binary.exists() and local_binary.is_file():
