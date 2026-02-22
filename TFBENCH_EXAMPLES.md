@@ -289,10 +289,10 @@ While cache speeds don't reflect disk performance, they ARE useful for:
 Install tframetest package first:
 ```bash
 # Debian/Ubuntu
-sudo dpkg -i tframetest_3025.1.1_amd64.deb
+sudo dpkg -i tframetest_3025.12.0_amd64.deb
 
 # RHEL/Rocky/AlmaLinux
-sudo rpm -ivh tframetest-3025.1.1-1.el9.x86_64.rpm
+sudo rpm -ivh tframetest-3025.12.0-1.el9.x86_64.rpm
 ```
 
 ### "Target directory does not exist"

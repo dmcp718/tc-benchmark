@@ -192,7 +192,7 @@ class BenchmarkRunner:
                 return which_result
 
             # Not installed - check if installer is available
-            installer_pkg = script_dir / "macos-installer" / "build" / "tframetest-3025.1.1-macos-arm64.pkg"
+            installer_pkg = script_dir / "macos-installer" / "build" / "tframetest-3025.12.0-macos-arm64.pkg"
             if installer_pkg.exists():
                 self._prompt_install_macos(installer_pkg)
                 # After prompting, check again if user installed

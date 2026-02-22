@@ -1,6 +1,6 @@
 tframetest - Media Frame Testing Tool
 
-Version: 3025.1.1
+Version: 3025.12.0
 Platform: macOS (ARM64)
 
 INSTALLATION

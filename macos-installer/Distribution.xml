@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-    <title>tframetest 3025.1.1</title>
+    <title>tframetest 3025.12.0</title>
     <organization>com.tuxera.tframetest</organization>
     <domains enable_localSystem="true"/>
     <options customize="never" require-scripts="true" rootVolumeOnly="true" />
@@ -38,6 +38,6 @@
         <pkg-ref id="com.tuxera.tframetest"/>
     </choice>
 
-    <pkg-ref id="com.tuxera.tframetest" version="3025.1.1" onConclusion="none">tframetest.pkg</pkg-ref>
+    <pkg-ref id="com.tuxera.tframetest" version="3025.12.0" onConclusion="none">tframetest.pkg</pkg-ref>
 
 </installer-gui-script>

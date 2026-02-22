@@ -4,21 +4,21 @@ This directory contains the macOS installer package for tframetest.
 
 ## What's Included
 
-- **tframetest-3025.1.1-macos-arm64.pkg** - Ready-to-install package for macOS
+- **tframetest-3025.12.0-macos-arm64.pkg** - Ready-to-install package for macOS
 - Native ARM64 binary optimized for Apple Silicon (M1/M2/M3)
 - Also compatible with Intel Macs via Rosetta 2
 
 ## Installation
 
 ### GUI Installation (Recommended)
-1. Double-click `tframetest-3025.1.1-macos-arm64.pkg`
+1. Double-click `tframetest-3025.12.0-macos-arm64.pkg`
 2. Follow the on-screen instructions
 3. Enter your administrator password when prompted
 4. The installer will place `tframetest` in `/usr/local/bin/`
 
 ### Command-Line Installation
 ```bash
-sudo installer -pkg build/tframetest-3025.1.1-macos-arm64.pkg -target /
+sudo installer -pkg build/tframetest-3025.12.0-macos-arm64.pkg -target /
 ```
 
 ## Verification
@@ -30,7 +30,7 @@ tframetest --version
 
 You should see:
 ```
-tframetest 3025.1.1
+tframetest 3025.12.0
 ```
 
 ## Usage
@@ -73,7 +73,7 @@ If you need to rebuild the installer package:
 
 3. The installer will be created at:
    ```
-   build/tframetest-3025.1.1-macos-arm64.pkg
+   build/tframetest-3025.12.0-macos-arm64.pkg
    ```
 
 ## System Requirements
@@ -97,7 +97,7 @@ macos-installer/
 ├── scripts/
 │   └── postinstall            # Post-installation script
 └── build/
-    └── tframetest-3025.1.1-macos-arm64.pkg  # Final installer
+    └── tframetest-3025.12.0-macos-arm64.pkg  # Final installer
 ```
 
 ## License

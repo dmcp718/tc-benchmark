@@ -4,7 +4,7 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 
 ## Package Information
 
-**Version:** 3025.1.1
+**Version:** 3025.12.0
 **Build Type:** Static (no external dependencies)
 **Architecture:** x86-64
 **Minimum Kernel:** Linux 3.2.0+
@@ -13,10 +13,10 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 
 | Package          | File                                        | Size | Target Systems                     |
 |------------------|---------------------------------------------|------|------------------------------------|
-| **macOS ARM64**  | `tframetest-3025.1.1-macos-arm64.pkg`       | 17K  | macOS 10.13+, Apple Silicon (M1/M2/M3) |
-| Debian/Ubuntu    | `tframetest_3025.1.1_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
-| EL9 RPM          | `tframetest-3025.1.1-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
-| Windows 64-bit   | `tframetest-3025.1.1-win64.zip`             | 219K | Windows 10/11, Server 2016+        |
+| **macOS ARM64**  | `tframetest-3025.12.0-macos-arm64.pkg`       | 17K  | macOS 10.13+, Apple Silicon (M1/M2/M3) |
+| Debian/Ubuntu    | `tframetest_3025.12.0_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
+| EL9 RPM          | `tframetest-3025.12.0-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
+| Windows 64-bit   | `tframetest-3025.12.0-win64.zip`             | 219K | Windows 10/11, Server 2016+        |
 
 ## Installation
 
@@ -25,12 +25,12 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 **GUI Installation (Recommended):**
 ```bash
 # Double-click the .pkg file in Finder
-open macos-installer/build/tframetest-3025.1.1-macos-arm64.pkg
+open macos-installer/build/tframetest-3025.12.0-macos-arm64.pkg
 ```
 
 **Command-Line Installation:**
 ```bash
-sudo installer -pkg macos-installer/build/tframetest-3025.1.1-macos-arm64.pkg -target /
+sudo installer -pkg macos-installer/build/tframetest-3025.12.0-macos-arm64.pkg -target /
 ```
 
 **Building the Installer:**
@@ -49,28 +49,28 @@ When running `tfbench.py` on macOS without tframetest installed, it will automat
 
 ### Debian/Ubuntu
 ```bash
-sudo dpkg -i tframetest_3025.1.1_amd64.deb
+sudo dpkg -i tframetest_3025.12.0_amd64.deb
 ```
 
 ### RHEL/Rocky/AlmaLinux 9
 ```bash
-sudo rpm -ivh tframetest-3025.1.1-1.el9.x86_64.rpm
+sudo rpm -ivh tframetest-3025.12.0-1.el9.x86_64.rpm
 ```
 
 ### Windows 10/11
 ```powershell
 # Extract the ZIP file
-Expand-Archive tframetest-3025.1.1-win64.zip
+Expand-Archive tframetest-3025.12.0-win64.zip
 
 # Add to PATH or run directly
-cd tframetest-win-x86_64-w64-mingw32-3025.1.1
+cd tframetest-win-x86_64-w64-mingw32-3025.12.0
 .\tframetest.exe --version
 ```
 
 ### Verification
 ```bash
 tframetest --version
-# Output: tframetest 3025.1.1
+# Output: tframetest 3025.12.0
 ```
 
 ## Usage

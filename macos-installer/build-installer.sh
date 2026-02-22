@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION="3025.1.1"
+VERSION="3025.12.0"
 IDENTIFIER="com.tuxera.tframetest"
 INSTALL_LOCATION="/usr/local/bin"
 

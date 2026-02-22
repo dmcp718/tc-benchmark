@@ -1,0 +1,10 @@
+FROM almalinux:9
+
+RUN dnf install -y \
+    gcc \
+    make \
+    git \
+    rpm-build \
+    && dnf clean all
+
+WORKDIR /build
