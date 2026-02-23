@@ -18,6 +18,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Enable UTF-8 output on Windows to support Rich Unicode characters
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -290,9 +296,13 @@ class BenchmarkRunner:
             )
 
             if result.returncode != 0:
-                self.console.print(f"[bold red]Error:[/bold red] tframetest failed with code {result.returncode}")
-                self.console.print(result.stderr)
-                return None
+                # On Windows, tframetest may return non-zero exit codes even on
+                # success (e.g. heap cleanup errors at process exit). If we got
+                # valid output on stdout, try to parse it before giving up.
+                if not result.stdout or not result.stdout.strip():
+                    self.console.print(f"[bold red]Error:[/bold red] tframetest failed with code {result.returncode}")
+                    self.console.print(result.stderr)
+                    return None
 
             # Parse output
             parsed = TframetestParser.parse(result.stdout)
@@ -739,7 +749,7 @@ Examples:
 
     args = parser.parse_args()
 
-    console = Console()
+    console = Console(force_terminal=True)
 
     # Parse mode
     if args.parse:
