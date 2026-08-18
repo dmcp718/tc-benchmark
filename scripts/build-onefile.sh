@@ -19,10 +19,15 @@
 #   that's produced -- apply patches/random-fill.patch, `make release
 #   LDFLAGS='-static -pthread'`, after `dnf config-manager --set-enabled
 #   crb && dnf install -y glibc-static` for the static libc):
-#     docker run --rm --platform linux/amd64 -v "$(pwd):/repo" -w /repo \
+#     podman run --rm --platform linux/amd64 -v "$(pwd):/repo" -w /repo \
 #       almalinux:9 bash -c './scripts/build-onefile.sh'
-#   The container needs python3/pip (dnf install -y python3 python3-pip);
-#   this script falls back to pip when uv isn't on PATH.
+#   (docker works identically; linux-builders/ honors CONTAINER_ENGINE the
+#   same way.) The container needs python3/pip (dnf install -y python3
+#   python3-pip); this script falls back to pip when uv isn't on PATH.
+#   Build in the OLDEST glibc environment you intend to support: the
+#   embedded CPython inherits the build image's glibc floor (AlmaLinux 9
+#   -> glibc >= 2.33; a python:3.12-slim build required 2.38 and broke
+#   Debian 12).
 #
 # Windows x86-64: run on a real or VM Windows box (PyInstaller does not
 #   cross-compile Windows executables from macOS/Linux either):

@@ -411,7 +411,12 @@ This is useful for:
 
 ## Technical Details
 
-### Static Linking
+### Static Linking (.rpm/.deb tframetest packages)
+
+The claims below apply to the **tframetest binaries** in the platform packages —
+not to the tfbench single-file executables from GitHub Releases, which carry an
+embedded CPython runtime with a glibc >= 2.33 floor on Linux (see "Portable
+install" above).
 Both packages contain **statically linked** binaries, meaning:
 - ✓ No glibc version dependencies
 - ✓ Portable across different Linux distributions
