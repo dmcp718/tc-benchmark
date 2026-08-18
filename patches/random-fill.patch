@@ -1,0 +1,142 @@
+diff --git a/frame.c b/frame.c
+index ceda24e..b5de77a 100644
+--- a/frame.c
++++ b/frame.c
+@@ -23,12 +23,66 @@
+ #else
+ #define _XOPEN_SOURCE 500
+ #endif
++#include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+ #include "frame.h"
+ 
++/*
++ * xorshift64: fast, deterministic pseudorandom generator used to fill
++ * frames with incompressible data. Storage backends with transparent
++ * compression (e.g. lz4 on LucidLink filespaces) collapse a
++ * single-byte-fill frame by ~450:1, which measures the compression
++ * pipeline instead of storage I/O. A fixed seed keeps output
++ * reproducible across runs (no rand()/time() in the hot loop).
++ */
++static uint64_t xorshift64(uint64_t *state)
++{
++	uint64_t x = *state;
++
++	x ^= x << 13;
++	x ^= x >> 7;
++	x ^= x << 17;
++	*state = x;
++	return x;
++}
++
++static size_t frame_fill_random(frame_t *frame)
++{
++	uint64_t state;
++	uint64_t *words;
++	size_t nwords;
++	size_t remainder;
++	size_t i;
++
++	if (!frame->size)
++		return 0;
++
++	/* Fixed constant XORed with the frame size: deterministic, but
++	 * varies enough between differently sized frames/profiles that
++	 * every run doesn't emit byte-for-byte identical data. */
++	state = 0x9E3779B97F4A7C15ULL ^ (uint64_t)frame->size;
++	if (!state)
++		state = 1; /* xorshift64 requires a non-zero state */
++
++	words = (uint64_t *)frame->data;
++	nwords = frame->size / sizeof(*words);
++	remainder = frame->size % sizeof(*words);
++
++	for (i = 0; i < nwords; i++)
++		words[i] = xorshift64(&state);
++
++	if (remainder) {
++		uint64_t last = xorshift64(&state);
++		memcpy((unsigned char *)frame->data + nwords * sizeof(*words),
++		       &last, remainder);
++	}
++
++	return frame->size;
++}
++
+ frame_t *frame_gen(const platform_t *platform, profile_t profile)
+ {
+ 	frame_t *res = platform->calloc(1, sizeof(*res));
+@@ -47,7 +101,7 @@ frame_t *frame_gen(const platform_t *platform, profile_t profile)
+ 		platform->free(res);
+ 		return NULL;
+ 	}
+-	(void)frame_fill(res, 't');
++	(void)frame_fill_random(res);
+ 
+ 	return res;
+ }
+diff --git a/tests/test_frame.c b/tests/test_frame.c
+index 0d9a902..8a4a09c 100644
+--- a/tests/test_frame.c
++++ b/tests/test_frame.c
+@@ -106,13 +106,23 @@ int test_frame_fill(void **state)
+ 	const platform_t *platform = *state;
+ 	frame_t *frm;
+ 	size_t i;
++	int all_same;
+ 
+ 	frm = gen_default_frame(platform);
+ 	TEST_ASSERT(frm);
+ 
+-	/* Default fill with 't' */
+-	for (i = 0; i < frm->size; i++)
+-		TEST_ASSERT_EQI(i, ((unsigned char *)frm->data)[i], 't');
++	/* frame_gen fills with pseudorandom (incompressible) data rather
++	 * than a repeated byte; assert it isn't a single-byte fill instead
++	 * of pinning down the exact bytes generated. */
++	all_same = 1;
++	for (i = 1; i < frm->size; i++) {
++		if (((unsigned char *)frm->data)[i] !=
++		    ((unsigned char *)frm->data)[0]) {
++			all_same = 0;
++			break;
++		}
++	}
++	TEST_ASSERT(!all_same);
+ 
+ 	/* Test fill works */
+ 	TEST_ASSERT_EQ(frame_fill(frm, 0x42), frm->size);
+@@ -131,15 +141,20 @@ int test_frame_write_read(void **state)
+ 	frame_t *frm_read;
+ 	size_t fw;
+ 	int fd;
++	unsigned char frm_read_untouched;
+ 
+ 	frm = gen_default_frame(platform);
+ 	frm_read = gen_default_frame(platform);
+ 	TEST_ASSERT(frm);
+ 	TEST_ASSERT(frm_read);
+ 
++	/* Snapshot frm_read's generated (pseudorandom) first byte so we can
++	 * confirm below that it is untouched until frame_read() runs. */
++	frm_read_untouched = ((unsigned char *)frm_read->data)[0];
++
+ 	TEST_ASSERT_EQ(frame_fill(frm, 0x42), frm->size);
+ 	TEST_ASSERT_EQ(((unsigned char *)frm->data)[0], 0x42);
+-	TEST_ASSERT_EQ(((unsigned char *)frm_read->data)[0], 't');
++	TEST_ASSERT_EQ(((unsigned char *)frm_read->data)[0], frm_read_untouched);
+ 
+ 	fd = platform->open("tst1",
+ 			    PLATFORM_OPEN_WRITE | PLATFORM_OPEN_CREATE |
+@@ -149,7 +164,7 @@ int test_frame_write_read(void **state)
+ 	TEST_ASSERT_EQ(fw, frm->size);
+ 	platform->close(fd);
+ 
+-	TEST_ASSERT_EQ(((unsigned char *)frm_read->data)[0], 't');
++	TEST_ASSERT_EQ(((unsigned char *)frm_read->data)[0], frm_read_untouched);
+ 
+ 	fd = platform->open("tst1", PLATFORM_OPEN_READ | PLATFORM_OPEN_DIRECT,
+ 			    0666);

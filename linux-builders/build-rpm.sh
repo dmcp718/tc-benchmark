@@ -33,6 +33,13 @@ docker run --rm -v "$REPO_DIR:/output" tframetest-rpm-builder bash -c "
     echo 'Cloning tframetest...'
     git clone --depth 1 --branch \"\${VERSION}\" https://github.com/tuxera/tframetest.git /build/tframetest
     cd /build/tframetest
+
+    # Apply the incompressible-frame-fill patch (platform-neutral: fixes
+    # transparent-compression backends reporting cache-ingest speed instead
+    # of true storage throughput). The repo is bind-mounted at /output.
+    echo 'Applying random-fill patch...'
+    git apply /output/patches/random-fill.patch
+
     echo 'Building...'
     make release
     echo 'Build complete.'

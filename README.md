@@ -224,6 +224,18 @@ Options:
   --timeout SECONDS        Timeout per test in seconds (default: 1800 = 30 min)
   --csv FILE               Export results to CSV file
   --parse FILE             Parse and visualize existing tframetest output file
+  --binary PATH            Path to the tframetest binary to run, overriding
+                           auto-discovery (env: TFBENCH_BINARY)
+  --no-flush               Skip polling LucidLink's upload queue after the
+                           write test, even on a LucidLink mount
+  --link-speed MBPS        Link speed in Mbps (megabits/second) used to flag
+                           reads/writes exceeding the link's real capacity as
+                           served from a local cache. The 10 GiB/s RAM-cache
+                           heuristic (reads only) is always checked too and
+                           takes precedence when both apply
+  --flush-timeout SECONDS  Max seconds to wait for the LucidLink upload queue
+                           to drain after the write test (default: 600);
+                           independent of --timeout
   target_dir               Target directory for tests
 ```
 
@@ -233,13 +245,21 @@ tfbench displays:
 
 1. **Throughput Comparison** - Visual bar chart comparing write and read performance
 2. **Performance Insights** - Comprehensive stats including:
-   - **Write Performance**: Throughput, latency (min/avg/max), total time
-   - **Read Performance**: Cache speedup, read/write ratios, per-read stats
-   - Shows all individual read test results with cache indicators
+   - **Write Performance**: Throughput, latency (min/avg/max), total time, and — on a
+     LucidLink mount — upload drain time and end-to-end (flushed) throughput
+   - **Read Performance**: Read repeatability (Read #2 / Read #1), read/write ratios, per-read stats
+   - Shows all individual read test results, flagged when their throughput
+     exceeds a real disk/SSD/network (RAM cache, or `--link-speed` if given)
 3. **Latency Statistics** - Min/avg/max/range completion times in clear table format
-4. **Detailed Statistics** - Complete table with all metrics
+4. **Detailed Statistics** - Complete table with all metrics, including a Flag column
+5. **LucidLink Flush Metrics** (LucidLink targets only) - Cache-ingest vs. end-to-end
+   throughput, drain time, and peak queued upload
 
-The tool automatically detects cache behavior (cold vs warm cache) and calculates performance ratios. Write statistics are prominently displayed to help characterize deployment environment storage performance.
+Read results are labeled neutrally (Read #1, #2, ...) — tfbench does not assume any read is
+"cold": on LucidLink mounts the files it just wrote are already warm in the local cache, so
+consecutive reads mostly measure repeatability, not a cache warm-up effect. Results whose
+throughput implausibly exceeds real storage or network capacity are flagged instead, either via
+the 10 GiB/s RAM-cache heuristic or `--link-speed` if you know your link's real throughput.
 
 ### CSV Export
 
@@ -250,9 +270,11 @@ uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
 ```
 
 **CSV format includes:**
-- Metadata: timestamp, target directory, frame size, threads
-- Detailed results: All metrics for each test (write/read)
-- Performance insights: Cache speedup, read/write ratios, latency improvements
+- Metadata: timestamp, target directory, frame size, threads, link speed (if given)
+- Detailed results: All metrics for each test (write/read), a `cache_flag` column, and
+  flush columns (`drain_seconds`, `peak_remaining_upload_mib`, `end_to_end_mib_per_sec`)
+  populated for the write row on LucidLink targets
+- Performance insights: Read repeatability, read/write ratios, latency improvements
 - All timing data in both nanoseconds and seconds
 
 ### Parsing Existing Output
@@ -321,6 +343,13 @@ These packages were built with:
 - Optimization: `-O2`
 - Build Date: October 5, 2025
 
+Patches are kept in `patches/` at the repo root:
+
+| Patch | Scope | Applies to |
+|---|---|---|
+| `patches/macos-f_nocache.patch` | Darwin-only | macOS builds only |
+| `patches/random-fill.patch` | Platform-neutral | macOS and Linux (.rpm/.deb) builds (Windows: not yet applied — see below) |
+
 ### macOS Direct I/O Patch (F_NOCACHE)
 
 Upstream tframetest opens all test files with `PLATFORM_OPEN_DIRECT`, which maps
@@ -329,15 +358,75 @@ a no-op on macOS (`/* Faking O_DIRECT for now... */` in `platform.c`), so reads
 were served from the unified buffer cache and could report RAM speeds instead of
 storage speeds.
 
-The macOS binary in this repository is built with
-`macos-installer/macos-f_nocache.patch` applied, which implements direct I/O on
-Darwin via `fcntl(fd, F_NOCACHE, 1)` in `generic_open()`. To reproduce the build:
+The macOS binary in this repository is built with `patches/macos-f_nocache.patch`
+applied, which implements direct I/O on Darwin via `fcntl(fd, F_NOCACHE, 1)` in
+`generic_open()`. This patch is Darwin-only and is not applied on Linux/Windows
+builds (`O_DIRECT`/`FILE_FLAG_NO_BUFFERING` already do the right thing there).
+
+### Incompressible Frame Fill (random-fill)
+
+Upstream tframetest fills every frame with a single repeated byte
+(`frame_fill(res, 't')` in `frame.c`). On storage with transparent
+compression — e.g. a LucidLink filespace using lz4 — a 51 MB frame made of
+one repeated byte compresses ~450:1, so benchmarks end up measuring the
+compression pipeline instead of storage I/O (verified: writing frames to a
+1 GiB-cache LucidLink mount queued only a few MiB for upload, and reported
+write speed reflected cache-ingest, not the true end-to-end rate).
+
+This patch is platform-neutral (it only touches `frame.c`'s fill logic, not any
+platform-specific I/O code) and is applied via `patches/random-fill.patch` to the
+macOS binary and to Linux `.rpm`/`.deb` builds (`linux-builders/` applies it
+automatically). **The shipped Windows binary
+(`tframetest-3025.12.0-win64.zip`) has NOT yet been rebuilt with this patch** and
+still writes compressible single-byte frames — TODO: rebuild it (mingw cross or
+native) with `patches/random-fill.patch` applied. The patch
+fills frames with fast pseudorandom data (xorshift64, 8 bytes/iteration, with
+correct handling of the trailing bytes when frame size isn't a multiple of 8)
+instead of a repeated byte. The `-e`/empty-frame profile is unaffected
+(zero-size frames are always skipped). The patch also updates the upstream unit
+test assertions in `tests/test_frame.c` that hard-coded the old `'t'`-fill byte,
+so `make test` still passes on platforms where the test harness can link (macOS's
+Apple `ld` doesn't support the `--wrap` flag the test harness uses, independent
+of this patch).
+
+**Known limitation:** within a single tframetest invocation, every frame file
+written shares one in-memory buffer that upstream `frametest.c` allocates once
+per run and reuses, unsynchronized, across all worker threads (see `opts->frm`
+in `frametest.c` and its use in `tester_run_write()`/`tester_run_read()`). That
+means all frame files produced by one run are byte-identical to each other. This
+defeats transparent *compression* (the bug this patch fixes — lz4 etc. operate
+within a single file/stream) but would **not** defeat a *deduplicating* backend
+that recognizes identical content across files. Stamping a per-frame marker into
+the write hot path (`tester_frame_write()` in `tester.c`) was considered but
+rejected: that shared frame buffer is written by multiple threads concurrently
+under `-t`/`--threads > 1` with no synchronization around it, so mutating its
+content per-frame would race and could corrupt whichever frame(s) are mid-write
+at the time. Fixing that properly needs per-thread frame buffers, which is a
+larger change than this patch's scope.
+
+To reproduce the macOS build with both patches:
 
 ```bash
-git clone https://github.com/tuxera/tframetest.git
+git clone --branch 3025.12.0 --depth 1 https://github.com/tuxera/tframetest.git
 cd tframetest
-git apply ../macos-installer/macos-f_nocache.patch
+git apply ../patches/macos-f_nocache.patch
+git apply ../patches/random-fill.patch
 make release   # output: build/tframetest (arm64)
+```
+
+### Linux Build (.rpm / .deb)
+
+`linux-builders/build-rpm.sh` and `linux-builders/build-deb.sh` clone the exact
+tagged release inside a Docker container, apply `patches/random-fill.patch`
+(bind-mounted into the container from the repo root), then `make release` and
+package the result. They do **not** apply `patches/macos-f_nocache.patch` (it's
+Darwin-only). To reproduce manually in the same environment as the container:
+
+```bash
+git clone --branch 3025.12.0 --depth 1 https://github.com/tuxera/tframetest.git
+cd tframetest
+git apply ../patches/random-fill.patch
+make release   # output: build/tframetest
 ```
 
 ## Uninstallation

@@ -43,22 +43,31 @@ uv run tfbench.py -w 4k -n 1000 -t 8 /media/slow-storage --timeout 7200  # 2 hou
 
 Shows visual bar chart of MiB/s for each test:
 - **Write** (green) - Initial write performance
-- **Read #1** (blue) - First read, typically shows "cold cache" performance
-- **Read #2** (cyan) - Second read, typically shows "warm cache" performance
-- **⚡ RAM CACHE** (yellow) - Indicates read speeds >10 GB/s (data served from RAM, not disk)
+- **Read #1** (blue), **Read #2** (cyan), ... - Neutral labels; tfbench doesn't assume any
+  read is "cold". Files were just written, so they're already warm in any local/OS cache —
+  consecutive reads mostly show run-to-run repeatability, not a cache warm-up effect
+- **⚡ RAM CACHE** (yellow) - Read speeds >10 GB/s (data served from RAM, not disk); always
+  checked, and takes precedence when the link-speed condition also applies
+- **⚡ LOCAL CACHE** (yellow) - Shown when `--link-speed` is given and a read or write
+  exceeds what that link could physically sustain
 
 The bar length is proportional to throughput, making it easy to compare at a glance.
 
-**Important:** If you see "⚡ RAM CACHE" indicators, the read performance represents the speed of accessing data from system RAM, not the actual storage device. This is valuable for understanding cache behavior but doesn't reflect disk I/O performance.
+**Important:** If you see a "⚡ RAM CACHE" or "⚡ LOCAL CACHE" indicator, that result represents
+the speed of a local cache (system RAM, or a local disk cache on a WAN-backed mount), not the
+real storage/network path. This is valuable for understanding cache behavior but doesn't reflect
+true storage or network I/O performance. Pass `--link-speed MBPS` with your actual link's
+bandwidth to catch local-disk-cache cases the 10 GB/s RAM heuristic alone would miss.
 
 ### 2. Performance Insights
 
 Automatically calculated metrics:
 
-- **Cache speedup** - How much faster Read #2 is compared to Read #1
-  - Example: `3.63x` means cached reads are 3.63 times faster
-  - Values > 2x indicate effective caching
-  - Values near 1x may indicate cache limitations or different access patterns
+- **Read repeatability (Read #2 / Read #1)** - How consistent repeated reads are
+  - Example: `3.63x` means Read #2 was 3.63 times faster than Read #1
+  - Since both reads run against files just written (already warm), a ratio far from 1x more
+    often reflects a local cache draining/filling or contention than a "cache warm-up" effect
+  - Values near 1x indicate consistent, repeatable throughput
 
 - **Read/Write ratio** - Best read performance vs write performance
   - Example: `2.60x` means cached reads are 2.6 times faster than writes
@@ -106,13 +115,15 @@ uv run tfbench.py -w 4k -n 500 -t 8 /mnt/hdd --csv hdd_results.csv
 
 The CSV includes three sections:
 
-1. **Metadata** - Timestamp, target directory, frame size, threads
+1. **Metadata** - Timestamp, target directory, frame size, threads, link speed (if given)
 2. **Benchmark Results** - Complete metrics for each test:
    - test_name, operation, profile, frames, bytes
    - time_ns, time_seconds, fps, bytes_per_sec, mib_per_sec
    - min_ms, avg_ms, max_ms, range_ms
+   - cache_flag ("ram", "link", or empty), drain_seconds, peak_remaining_upload_mib,
+     end_to_end_mib_per_sec (the last three populated for the write row on LucidLink targets)
 3. **Performance Insights** - Calculated metrics:
-   - cache_speedup_ratio
+   - read_repeatability_ratio
    - read_write_ratio
    - latency_improvement_percent
 
