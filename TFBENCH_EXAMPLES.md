@@ -5,7 +5,7 @@
 ### Basic Usage
 
 ```bash
-# Run standard benchmark (1 write + 2 reads, 500 frames)
+# Run standard benchmark (1 write + 3 reads, 500 frames)
 uv run tfbench.py -w 4k -n 500 -t 8 /media/tc-mngr/tftest
 
 # Fast test (fewer frames for quick checks)
@@ -35,6 +35,18 @@ uv run tfbench.py -w 4k -n 500 -t 32 /media/storage  # 32 threads
 
 # Slow storage with extended timeout
 uv run tfbench.py -w 4k -n 1000 -t 8 /media/slow-storage --timeout 7200  # 2 hour timeout
+
+# Flag results that exceed your link's real capacity (1 Gbps ≈ 119 MiB/s)
+uv run tfbench.py -w 4k -n 500 -t 8 /media/storage --link-speed 1000
+
+# Cloud filesystem: measure end-to-end write speed by polling the
+# filesystem's pending-upload counter until it drains to zero
+uv run tfbench.py -w 4k -n 500 -t 8 /mnt/cloudfs/bench \
+    --flush-cmd 'mycloudfs stats --pending-upload-bytes' --flush-timeout 300
+
+# Use a specific tframetest build; check which binary would run
+uv run tfbench.py -w 4k -n 500 -t 8 /media/storage --binary ./build/tframetest
+uv run tfbench.py --version
 ```
 
 ## Understanding the Output
@@ -121,7 +133,7 @@ The CSV includes three sections:
    - time_ns, time_seconds, fps, bytes_per_sec, mib_per_sec
    - min_ms, avg_ms, max_ms, range_ms
    - cache_flag ("ram", "link", or empty), drain_seconds, peak_remaining_upload_mib,
-     end_to_end_mib_per_sec (the last three populated for the write row on LucidLink targets)
+     end_to_end_mib_per_sec (the last three populated for the write row when --flush-cmd is given)
 3. **Performance Insights** - Calculated metrics:
    - read_repeatability_ratio
    - read_write_ratio
@@ -159,15 +171,18 @@ uv run tfbench.py -w 4k -n 500 -t 16 /mnt/hdd --timeout 3600
 
 Compare the results to see performance differences.
 
-### Cache Behavior Analysis
+### Read Repeatability Analysis
 
-Run with multiple reads to see cache warming:
+Run with multiple reads to check run-to-run consistency:
 
 ```bash
 uv run tfbench.py -w 4k -n 500 -t 8 /media/storage --reads 4
 ```
 
-Watch how performance improves across successive reads.
+Note that the frames were just written, so every read pass is warm in any
+local/OS cache layer — consistent numbers across passes indicate a stable
+measurement, not a cold-to-warm transition. Pass `--link-speed` to catch
+reads that are being served from a local cache instead of real storage.
 
 ### Thread Scaling Study
 

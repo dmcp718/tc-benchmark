@@ -201,7 +201,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 **Amazon Linux 2023 (AWS EC2):**
 
-When deployed via the TeamCache AWS deployment automation, tfbench and all dependencies are pre-installed. Access your instance via SSM Session Manager:
+When deployed via AWS deployment automation that pre-installs tfbench and its dependencies, access your instance via SSM Session Manager:
 
 ```bash
 # Connect to instance
@@ -249,27 +249,47 @@ uv run tfbench.py -w 4k -n 2000 -t 16 /mnt/storage --timeout 3600
 ### tfbench Options
 
 ```
-Options:
-  -w, --write-size SIZE    Frame size (default: 4k)
-  -n, --frames COUNT       Number of frames (default: 500)
-  -t, --threads COUNT      Number of threads (default: 8)
-  --reads COUNT            Number of read tests (default: 3)
-  --timeout SECONDS        Timeout per test in seconds (default: 1800 = 30 min)
-  --csv FILE               Export results to CSV file
-  --parse FILE             Parse and visualize existing tframetest output file
-  --binary PATH            Path to the tframetest binary to run, overriding
-                           auto-discovery (env: TFBENCH_BINARY)
-  --no-flush               Skip polling LucidLink's upload queue after the
-                           write test, even on a LucidLink mount
-  --link-speed MBPS        Link speed in Mbps (megabits/second) used to flag
-                           reads/writes exceeding the link's real capacity as
-                           served from a local cache. The 10 GiB/s RAM-cache
-                           heuristic (reads only) is always checked too and
-                           takes precedence when both apply
-  --flush-timeout SECONDS  Max seconds to wait for the LucidLink upload queue
-                           to drain after the write test (default: 600);
-                           independent of --timeout
-  target_dir               Target directory for tests
+positional arguments:
+  target_dir               Directory to benchmark (required unless --parse or
+                           --version is given)
+
+options:
+  --version                Show which tframetest binary would be used and its
+                           version, then exit
+
+benchmark options (run mode):
+  -w, --write-size SIZE    Frame size (2k, 4k, 1m, ...) or a tframetest profile
+                           name such as 4K-32bit-cmp (default: 4k)
+  -n, --frames COUNT       Frames per test pass (default: 500)
+  -t, --threads COUNT      Worker threads (default: 8); in --parse mode,
+                           overrides the auto-detected thread count shown
+  --reads COUNT            Read passes after the write pass (default: 3)
+  --timeout SECONDS        Timeout per tframetest invocation (default: 1800)
+  --binary PATH            tframetest binary to run instead of auto-discovery
+                           (env: TFBENCH_BINARY)
+
+upload flush (run mode):
+  --flush-cmd CMD          Shell command polled after the write test; its last
+                           stdout line must be the number of bytes still
+                           queued for upload (bare bytes or with a unit: '0',
+                           '12345', '4.51MiB', '1.2 GB'). Flush measurement
+                           only runs when this is given
+  --flush-timeout SECONDS  Max seconds to wait for the upload queue to drain
+                           (default: 600); independent of --timeout
+
+analysis and output:
+  --link-speed MBPS        Link speed in Mbps (megabits/second, not MiB/s).
+                           Reads/writes exceeding what the link could
+                           physically deliver are flagged as served from a
+                           local cache. The 10 GiB/s RAM-cache check (reads
+                           only) always runs too and takes precedence
+  --csv FILE               Export results (including flush metrics when
+                           measured) to a CSV file
+
+parse mode:
+  --parse FILE             Visualize existing tframetest output instead of
+                           running tests (mutually exclusive with target_dir);
+                           only -t, --link-speed, and --csv apply
 ```
 
 ### Output Example
@@ -278,18 +298,18 @@ tfbench displays:
 
 1. **Throughput Comparison** - Visual bar chart comparing write and read performance
 2. **Performance Insights** - Comprehensive stats including:
-   - **Write Performance**: Throughput, latency (min/avg/max), total time, and — on a
-     LucidLink mount — upload drain time and end-to-end (flushed) throughput
+   - **Write Performance**: Throughput, latency (min/avg/max), total time, and — with
+     `--flush-cmd` — upload drain time and end-to-end (flushed) throughput
    - **Read Performance**: Read repeatability (Read #2 / Read #1), read/write ratios, per-read stats
    - Shows all individual read test results, flagged when their throughput
      exceeds a real disk/SSD/network (RAM cache, or `--link-speed` if given)
 3. **Latency Statistics** - Min/avg/max/range completion times in clear table format
 4. **Detailed Statistics** - Complete table with all metrics, including a Flag column
-5. **LucidLink Flush Metrics** (LucidLink targets only) - Cache-ingest vs. end-to-end
+5. **Upload Flush Metrics** (with `--flush-cmd`) - Cache-ingest vs. end-to-end
    throughput, drain time, and peak queued upload
 
 Read results are labeled neutrally (Read #1, #2, ...) — tfbench does not assume any read is
-"cold": on LucidLink mounts the files it just wrote are already warm in the local cache, so
+"cold": on cached cloud filesystems the files it just wrote are already warm in the local cache, so
 consecutive reads mostly measure repeatability, not a cache warm-up effect. Results whose
 throughput implausibly exceeds real storage or network capacity are flagged instead, either via
 the 10 GiB/s RAM-cache heuristic or `--link-speed` if you know your link's real throughput.
@@ -306,7 +326,7 @@ uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
 - Metadata: timestamp, target directory, frame size, threads, link speed (if given)
 - Detailed results: All metrics for each test (write/read), a `cache_flag` column, and
   flush columns (`drain_seconds`, `peak_remaining_upload_mib`, `end_to_end_mib_per_sec`)
-  populated for the write row on LucidLink targets
+  populated for the write row when `--flush-cmd` is given
 - Performance insights: Read repeatability, read/write ratios, latency improvements
 - All timing data in both nanoseconds and seconds
 
@@ -401,11 +421,12 @@ builds (`O_DIRECT`/`FILE_FLAG_NO_BUFFERING` already do the right thing there).
 
 Upstream tframetest fills every frame with a single repeated byte
 (`frame_fill(res, 't')` in `frame.c`). On storage with transparent
-compression — e.g. a LucidLink filespace using lz4 — a 51 MB frame made of
-one repeated byte compresses ~450:1, so benchmarks end up measuring the
+compression — e.g. an lz4-compressed cloud filesystem — a 51 MB frame made
+of one repeated byte compresses ~450:1, so benchmarks end up measuring the
 compression pipeline instead of storage I/O (verified: writing frames to a
-1 GiB-cache LucidLink mount queued only a few MiB for upload, and reported
-write speed reflected cache-ingest, not the true end-to-end rate).
+compressed cloud filesystem with a 1 GiB local cache queued only a few MiB
+for upload, and reported write speed reflected cache-ingest, not the true
+end-to-end rate).
 
 This patch is platform-neutral (it only touches `frame.c`'s fill logic, not any
 platform-specific I/O code) and is applied via `patches/random-fill.patch` to the

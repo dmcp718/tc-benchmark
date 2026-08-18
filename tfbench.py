@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import textwrap
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -50,11 +51,11 @@ class BenchmarkResult:
     avg_ms: float
     max_ms: float
 
-    # Flush-aware write metrics (write results only; populated when the
-    # target is a LucidLink mount, --no-flush wasn't given, and the drain
-    # was confirmed to reach 0B before --flush-timeout). None when not
-    # measured (reads, non-Lucid targets, --parse mode, --no-flush, or a
-    # failed/timed-out drain poll) -- never a false zero.
+    # Flush-aware write metrics (write results only; populated when
+    # --flush-cmd was given and the drain was confirmed to reach zero
+    # before --flush-timeout). None when not measured (reads, no
+    # --flush-cmd, --parse mode, or a failed/timed-out drain poll) --
+    # never a false zero.
     drain_seconds: Optional[float] = None
     # NOTE: polling starts only after the write test completes, so this is
     # the peak observed DURING THE DRAIN, not the true high-water mark
@@ -227,140 +228,58 @@ class TframetestParser:
         return frame_size, threads
 
 
-# LucidLink mounts as a loopback SMB share (macOS/Windows) or FUSE mount
-# fronted by the same loopback listener; the daemon's local port varies,
-# so match the guest-loopback pattern rather than a fixed port.
-LUCID_MOUNT_DF_PATTERN = re.compile(r'//guest:@127\.0\.0\.1:', re.IGNORECASE)
-REMAINING_UPLOAD_PATTERN = re.compile(
-    r'Remaining upload:\s*([\d.]+)\s*(B|KiB|MiB|GiB|TiB)', re.IGNORECASE)
-# `lucid list` header: "INSTANCE ID   FILESPACE   PORT   MODE"; data rows
-# start with the instance id followed by whitespace and more columns.
-LUCID_LIST_INSTANCE_PATTERN = re.compile(r'^\s*(\d+)\s+\S', re.MULTILINE)
+# Output contract for --flush-cmd: the command's last non-empty stdout line
+# must be a byte count, optionally with a unit suffix. Binary (KiB/MiB/GiB/
+# TiB) and decimal (KB/MB/GB/TB) units are both accepted; a bare number is
+# taken as bytes. Examples: "0", "0B", "12345", "4.51MiB", "1.2 GB".
+FLUSH_SIZE_PATTERN = re.compile(
+    r'^([\d,]+(?:\.\d+)?)\s*(B|KB|KIB|MB|MIB|GB|GIB|TB|TIB)?$', re.IGNORECASE)
 
-
-def find_lucid_cli() -> Optional[str]:
-    """Locate the lucid CLI, preferring the current `lucid` over legacy `lucid3`."""
-    for name in ("lucid", "lucid3"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
-
-
-def _is_mount_point_prefix(mount_point: str, resolved_target: str) -> bool:
-    """True if resolved_target is at or under mount_point.
-
-    Compares whole path components (not a bare string prefix), so
-    /Volumes/team-us-2 does NOT match a mount point of /Volumes/team-us.
-    """
-    if not mount_point:
-        return False
-    mount_point = mount_point.rstrip(os.sep) or os.sep
-    if mount_point == os.sep:
-        return resolved_target.startswith(os.sep)
-    return resolved_target == mount_point or resolved_target.startswith(mount_point + os.sep)
-
-
-def resolve_lucid_instance(target_dir: str, lucid_cmd: Optional[str]) -> Optional[list[str]]:
-    """Determine whether target_dir is on a LucidLink mount, and if so,
-    which linked instance (filespace) owns it.
-
-    Returns None if target_dir isn't on any linked LucidLink filespace, or
-    the lucid CLI is unavailable — callers should skip flush measurement
-    entirely (silent no-op, unchanged behavior for non-LucidLink targets).
-
-    Otherwise returns the extra CLI args to prepend to `lucid` subcommands:
-      - ["--id", "<instance id>"] when a specific linked instance's mount
-        point matches target_dir. This is what correctly targets the right
-        upload queue when multiple filespaces are linked at once.
-      - [] for a bare invocation, used when only one filespace is linked
-        (or a linked instance couldn't be individually identified but a
-        LucidLink mount was still detected) — matches the pre-existing
-        single-filespace behavior.
-    """
-    if not lucid_cmd:
-        return None
-
-    try:
-        resolved = str(Path(target_dir).resolve())
-    except OSError:
-        return None
-
-    # Enumerate every linked instance and match its mount point. This is
-    # what disambiguates correctly when multiple filespaces are linked.
-    try:
-        list_result = subprocess.run(
-            [lucid_cmd, "list"], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        list_result = None
-
-    if list_result and list_result.returncode == 0:
-        for instance_id in LUCID_LIST_INSTANCE_PATTERN.findall(list_result.stdout):
-            try:
-                status_result = subprocess.run(
-                    [lucid_cmd, "--id", instance_id, "status"],
-                    capture_output=True, text=True, timeout=10)
-            except (OSError, subprocess.SubprocessError):
-                continue
-            if status_result.returncode != 0:
-                continue
-            mount_match = re.search(r'Mount point:\s*(.+)', status_result.stdout)
-            if mount_match and _is_mount_point_prefix(mount_match.group(1).strip(), resolved):
-                return ["--id", instance_id]
-
-    # Fallback for the common single-filespace case, or CLI versions
-    # without `lucid list`: df reporting the LucidLink loopback SMB
-    # filesystem, or a bare `lucid status`'s mount point matching.
-    try:
-        df_result = subprocess.run(
-            ["df", resolved], capture_output=True, text=True, timeout=10)
-        if df_result.returncode == 0 and LUCID_MOUNT_DF_PATTERN.search(df_result.stdout):
-            return []
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-    try:
-        status_result = subprocess.run(
-            [lucid_cmd, "status"], capture_output=True, text=True, timeout=10)
-        if status_result.returncode == 0:
-            mount_match = re.search(r'Mount point:\s*(.+)', status_result.stdout)
-            if mount_match and _is_mount_point_prefix(mount_match.group(1).strip(), resolved):
-                return []
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-    return None
+_UNIT_TO_BYTES = {
+    "": 1, "B": 1,
+    "KIB": 1024, "MIB": 1024 ** 2, "GIB": 1024 ** 3, "TIB": 1024 ** 4,
+    "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4,
+}
 
 
 def parse_size_to_mib(value: float, unit: str) -> float:
-    """Convert a `lucid cache` size like '363.09KiB' / '4.51MiB' / '1.50GiB' / '1.20TiB' to MiB."""
-    unit = unit.upper()
-    if unit == "B":
-        return value / (1024 ** 2)
-    if unit == "KIB":
-        return value / 1024
-    if unit == "MIB":
-        return value
-    if unit == "GIB":
-        return value * 1024
-    if unit == "TIB":
-        return value * 1024 * 1024
-    return 0.0
+    """Convert a size like '363.09KiB' / '4.51MiB' / '1.2GB' / '12345' (bytes) to MiB."""
+    return value * _UNIT_TO_BYTES.get(unit.upper(), 0) / (1024 ** 2)
 
 
-def poll_lucid_cache_drain(lucid_cmd: str, instance_args: list[str], timeout: int,
-                            console: Optional[Console] = None,
-                            poll_interval: float = 2.0,
-                            progress_interval: float = 10.0) -> Optional[tuple[float, float]]:
-    """Poll `lucid cache` for 'Remaining upload:' until it actually reaches
-    0B, via a successfully parsed response.
+def parse_flush_cmd_output(stdout: str) -> Optional[float]:
+    """Extract the pending-upload size (in MiB) from a flush command's output.
 
-    Returns (drain_seconds, peak_remaining_mib) ONLY after confirming the
-    queue drained. Returns None on any failure — a non-zero exit code, a
-    subprocess error, unparseable output, or exceeding `timeout` seconds
-    without confirming drain. Callers MUST treat None as "unmeasured", not
-    as an instant/zero drain: publishing zeros here would misrepresent a
-    failed measurement as "nothing was queued."
+    The last non-empty stdout line must match FLUSH_SIZE_PATTERN. Returns
+    None when the output doesn't follow the contract.
+    """
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    match = FLUSH_SIZE_PATTERN.match(lines[-1])
+    if not match:
+        return None
+    value = float(match.group(1).replace(",", ""))
+    return parse_size_to_mib(value, match.group(2) or "")
+
+
+def poll_flush_cmd(flush_cmd: str, timeout: int,
+                   console: Optional[Console] = None,
+                   poll_interval: float = 2.0,
+                   progress_interval: float = 10.0) -> Optional[tuple[float, float]]:
+    """Repeatedly run the user-supplied flush command until it reports that
+    the cloud filesystem's upload queue has drained to zero.
+
+    The command runs through the shell every poll_interval seconds; its last
+    non-empty stdout line must be the number of bytes still queued for
+    upload (see FLUSH_SIZE_PATTERN for accepted formats).
+
+    Returns (drain_seconds, peak_remaining_mib) ONLY after observing zero.
+    Returns None on any failure — a non-zero exit code, a subprocess error,
+    output violating the contract, or exceeding `timeout` seconds. Callers
+    MUST treat None as "unmeasured", not as an instant/zero drain:
+    publishing zeros here would misrepresent a failed measurement as
+    "nothing was queued."
     """
     start = time.monotonic()
     peak_mib = 0.0
@@ -373,19 +292,22 @@ def poll_lucid_cache_drain(lucid_cmd: str, instance_args: list[str], timeout: in
 
         try:
             result = subprocess.run(
-                [lucid_cmd, *instance_args, "cache"],
-                capture_output=True, text=True, timeout=10)
+                flush_cmd, shell=True,
+                capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.SubprocessError):
             return None
 
         if result.returncode != 0:
             return None
 
-        match = REMAINING_UPLOAD_PATTERN.search(result.stdout)
-        if not match:
+        remaining_mib = parse_flush_cmd_output(result.stdout)
+        if remaining_mib is None:
+            if console:
+                console.print(
+                    "[yellow]⚠ --flush-cmd output doesn't match the expected "
+                    "contract (last stdout line must be a byte count like "
+                    "'0', '12345', or '4.51MiB')[/yellow]")
             return None
-
-        remaining_mib = parse_size_to_mib(float(match.group(1)), match.group(2))
         peak_mib = max(peak_mib, remaining_mib)
 
         if remaining_mib <= 0:
@@ -405,12 +327,12 @@ class BenchmarkRunner:
     """Execute tframetest and capture results"""
 
     def __init__(self, console: Console, binary_override: Optional[str] = None,
-                 link_speed_mib_s: Optional[float] = None):
+                 link_speed_mib_s: Optional[float] = None, allow_prompt: bool = True):
         self.console = console
         self.link_speed_mib_s = link_speed_mib_s
-        self.tframetest_cmd = binary_override or self._find_tframetest()
+        self.tframetest_cmd = binary_override or self._find_tframetest(allow_prompt)
 
-    def _find_tframetest(self) -> str:
+    def _find_tframetest(self, allow_prompt: bool = True) -> str:
         """Find the appropriate tframetest binary for the current platform"""
         script_dir = Path(__file__).parent
 
@@ -428,7 +350,7 @@ class BenchmarkRunner:
 
             # Not installed - check if installer is available
             installer_pkg = script_dir / "macos-installer" / "build" / "tframetest-3025.12.0-macos-arm64.pkg"
-            if installer_pkg.exists():
+            if installer_pkg.exists() and allow_prompt:
                 self._prompt_install_macos(installer_pkg)
                 # After prompting, check again if user installed
                 if system_binary.exists():
@@ -573,7 +495,8 @@ class BenchmarkRunner:
 
     def run_benchmark_suite(self, write_size: str, num_frames: int, threads: int,
                            target_dir: str, num_reads: int = 2, timeout: int = 1800,
-                           flush: bool = True, flush_timeout: int = 600) -> list[BenchmarkResult]:
+                           flush_cmd: Optional[str] = None,
+                           flush_timeout: int = 600) -> list[BenchmarkResult]:
         """Run full benchmark: 1 write + N reads"""
         results = []
 
@@ -591,8 +514,8 @@ class BenchmarkRunner:
             write_result = self.run_test(write_size, num_frames, threads, target_dir, is_read=False, timeout=timeout)
             if write_result:
                 results.append(write_result)
-                if flush:
-                    self._measure_flush(write_result, target_dir, flush_timeout)
+                if flush_cmd:
+                    self._measure_flush(write_result, flush_cmd, flush_timeout)
             progress.update(task, advance=1)
 
             # Read tests
@@ -604,36 +527,33 @@ class BenchmarkRunner:
 
         return results
 
-    def _measure_flush(self, write_result: BenchmarkResult, target_dir: str, flush_timeout: int) -> None:
-        """After a write test, if the target is a LucidLink mount, poll the
-        upload queue until it drains and record end-to-end throughput.
+    def _measure_flush(self, write_result: BenchmarkResult, flush_cmd: str,
+                       flush_timeout: int) -> None:
+        """After a write test, poll the user-supplied flush command until
+        the cloud filesystem's upload queue drains and record end-to-end
+        throughput.
 
-        tframetest's reported write MiB/s reflects cache-ingest speed (the
-        local daemon acking the write) on write-back storage; this measures
-        how long the queued bytes actually take to reach the remote object
-        store, so both numbers can be reported side by side. Non-LucidLink
-        targets (or missing lucid CLI) are left unchanged — this is a no-op.
+        On write-back storage, tframetest's reported write MiB/s reflects
+        cache-ingest speed (the local client acking the write); this
+        measures how long the queued bytes actually take to reach the
+        remote backend, so both numbers can be reported side by side.
 
-        If the drain can't be confirmed (lucid CLI error, unparseable
-        output, or flush_timeout exceeded), a warning is printed and no
-        flush metrics are recorded — write_result's flush fields stay None
-        rather than being published as a false "zero" measurement.
+        If the drain can't be confirmed (flush command error, output
+        violating the contract, or flush_timeout exceeded), a warning is
+        printed and no flush metrics are recorded — write_result's flush
+        fields stay None rather than being published as a false "zero"
+        measurement.
         """
-        lucid_cmd = find_lucid_cli()
-        instance_args = resolve_lucid_instance(target_dir, lucid_cmd)
-        if instance_args is None:
-            return
-
         self.console.print(
-            f"[dim]Detected LucidLink mount — polling upload drain (timeout: {flush_timeout}s)...[/dim]")
-        drain_result = poll_lucid_cache_drain(
-            lucid_cmd, instance_args, flush_timeout, console=self.console)
+            f"[dim]Polling upload drain via --flush-cmd (timeout: {flush_timeout}s)...[/dim]")
+        drain_result = poll_flush_cmd(
+            flush_cmd, flush_timeout, console=self.console)
 
         if drain_result is None:
             self.console.print(
                 "[yellow]⚠ Could not confirm the upload queue drained "
-                "(lucid CLI error, unparseable output, or --flush-timeout exceeded) — "
-                "flush metrics omitted[/yellow]")
+                "(flush command error, unexpected output, or --flush-timeout "
+                "exceeded) — flush metrics omitted[/yellow]")
             return
 
         drain_seconds, peak_mib = drain_result
@@ -856,9 +776,9 @@ class BenchmarkVisualizer:
         return Panel(table, title="[bold]Detailed Statistics[/bold]", border_style="blue")
 
     def create_flush_panel(self, results: list[BenchmarkResult]) -> Optional[Panel]:
-        """Create a panel summarizing LucidLink upload-flush metrics for the
-        write test, if flush measurement was performed. Returns None
-        otherwise (non-LucidLink target, --no-flush, or --parse mode)."""
+        """Create a panel summarizing upload-flush metrics for the write
+        test, if flush measurement was performed. Returns None otherwise
+        (no --flush-cmd, or --parse mode)."""
         write_result = next((r for r in results if r.operation == "write"), None)
         if not write_result or write_result.drain_seconds is None:
             return None
@@ -873,7 +793,7 @@ class BenchmarkVisualizer:
         text.append("End-to-end (flushed): ", style="dim")
         text.append(f"{write_result.end_to_end_mib_per_sec:.2f} MiB/s\n", style="bold cyan")
 
-        return Panel(text, title="[bold]LucidLink Flush Metrics[/bold]", border_style="cyan")
+        return Panel(text, title="[bold]Upload Flush Metrics[/bold]", border_style="cyan")
 
     def display_results(self, results: list[BenchmarkResult], target_dir: str,
                        write_size: str, threads: int):
@@ -1057,78 +977,136 @@ class BenchmarkVisualizer:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="TUI visualizer for tframetest benchmarks",
+        description=textwrap.fill(
+            "Run tframetest storage benchmarks (1 write pass + N read passes) "
+            "against a target directory and visualize the results, or re-visualize "
+            "previously captured tframetest output with --parse. Results that "
+            "could not have come from real storage/network I/O (RAM cache, or a "
+            "local cache outrunning the network link) are flagged; on write-back "
+            "cloud filesystems, write throughput can additionally be measured "
+            "end-to-end by waiting for the upload queue to drain (--flush-cmd).",
+            width=78),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Run full benchmark suite (1 write + 3 reads by default)
-  uv run tfbench.py -w 4k -n 500 -t 8 /media/tc-mngr/tftest
+examples:
 
-  # Run with CSV export
-  uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --csv results.csv
+  run mode (benchmark a target directory):
+    # Full suite with defaults: 4k frames x 500, 8 threads, 1 write + 3 reads
+    uv run tfbench.py /mnt/storage
 
-  # Run with more frames and custom timeout
-  uv run tfbench.py -w 4k -n 2000 -t 16 /mnt/storage --timeout 3600
+    # Media-realistic frames via a tframetest profile, with CSV export
+    uv run tfbench.py -w 4K-32bit-cmp -n 200 /mnt/storage --csv results.csv
 
-  # Multiple read iterations to observe cache behavior
-  uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --reads 4
+    # Flag anything a 1 Gbps link could not physically deliver (~119 MiB/s)
+    uv run tfbench.py -w 4k -n 500 /mnt/storage --link-speed 1000
 
-  # Flag results exceeding a 1 Gbps link's real capacity (~119 MiB/s)
-  uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --link-speed 1000
+    # Cloud filesystem: measure end-to-end write speed by polling the
+    # filesystem's pending-upload counter until it drains (5 min cap)
+    uv run tfbench.py -w 4k -n 500 /mnt/cloudfs/bench \\
+        --flush-cmd 'mycloudfs stats --pending-upload-bytes' --flush-timeout 300
 
-  # Use a specific tframetest binary instead of auto-discovery
-  uv run tfbench.py -w 4k -n 500 -t 8 /mnt/storage --binary ./build/tframetest
+    # Benchmark with a specific tframetest build (or set TFBENCH_BINARY)
+    uv run tfbench.py -w 4k -n 500 /mnt/storage --binary ./build/tframetest
 
-  # Skip LucidLink upload-drain measurement after the write test
-  uv run tfbench.py -w 4k -n 500 -t 8 /mnt/lucid-mount --no-flush
+  parse mode (visualize captured tframetest output):
+    uv run tfbench.py --parse results.txt
+    uv run tfbench.py --parse results.txt --link-speed 1000 --csv analysis.csv
 
-  # Parse existing tframetest output
-  uv run tfbench.py --parse results.txt
+notes:
+  * With --flush-cmd the write is reported two ways: cache ingest
+    (tframetest's own number) and end-to-end, which includes the time for
+    the filesystem's upload queue to drain to zero.
+  * In parse mode only -t, --link-speed, and --csv apply; run-mode options
+    are ignored.
+  * Frames just written are warm in every cache layer, so consecutive read
+    passes show repeatability, not a cold-to-warm transition.
         """
     )
 
-    parser.add_argument("-w", "--write-size", default="4k",
-                       help="Frame size for write test (e.g., 2k, 4k, 1m)")
-    parser.add_argument("-n", "--frames", type=int, default=500,
-                       help="Number of frames to test (default: 500)")
-    parser.add_argument("-t", "--threads", type=int, default=0,
-                       help="Number of threads to use. Default: 0, which means "
-                            "8 in run mode (i.e. an actual run defaults to 8 "
-                            "threads), or auto-detect from the profile string "
-                            "in --parse mode")
-    parser.add_argument("--reads", type=int, default=3,
-                       help="Number of read tests to run (default: 3)")
-    parser.add_argument("--timeout", type=int, default=1800,
-                       help="Timeout per test in seconds (default: 1800 = 30 minutes)")
-    parser.add_argument("--csv", metavar="FILE",
-                       help="Export results to CSV file")
-    parser.add_argument("--parse", metavar="FILE",
-                       help="Parse and visualize existing tframetest output file")
-    parser.add_argument("--binary", metavar="PATH",
-                       help="Path to the tframetest binary to run, overriding "
-                            "auto-discovery (env: TFBENCH_BINARY)")
-    parser.add_argument("--no-flush", action="store_true",
-                       help="Skip polling LucidLink's upload queue after the write "
-                            "test, even if the target is a LucidLink mount")
-    parser.add_argument("--flush-timeout", type=int, default=600, metavar="SECONDS",
-                       help="Max seconds to wait for the LucidLink upload queue to "
-                            "drain after the write test (default: 600 = 10 minutes). "
-                            "Independent of --timeout, which only bounds each "
-                            "tframetest run itself")
-    parser.add_argument("--link-speed", type=float, metavar="MBPS",
-                       help="Network link speed in Mbps (megabits/second, not "
-                            "MiB/s) used to flag reads/writes that exceed the "
-                            "link's theoretical throughput as served from a "
-                            "local cache rather than genuine storage/network "
-                            "I/O. The 10 GiB/s RAM-cache heuristic (reads only) "
-                            "is always checked as well and takes precedence "
-                            "when both apply")
     parser.add_argument("target_dir", nargs="?",
-                       help="Target directory for benchmark tests")
+                       help="Directory to benchmark (required unless --parse or "
+                            "--version is given)")
+    parser.add_argument("--version", action="store_true",
+                       help="Show which tframetest binary would be used and its "
+                            "version, then exit")
+
+    run_group = parser.add_argument_group("benchmark options (run mode)")
+    run_group.add_argument("-w", "--write-size", default="4k", metavar="SIZE",
+                       help="Frame size (2k, 4k, 1m, ...) or a tframetest profile "
+                            "name such as 4K-32bit-cmp — see 'tframetest -l' "
+                            "(default: 4k)")
+    run_group.add_argument("-n", "--frames", type=int, default=500, metavar="COUNT",
+                       help="Frames per test pass (default: 500)")
+    run_group.add_argument("-t", "--threads", type=int, default=0, metavar="COUNT",
+                       help="Worker threads (default: 8). In --parse mode this "
+                            "overrides the thread count shown, which is otherwise "
+                            "auto-detected from the profile string")
+    run_group.add_argument("--reads", type=int, default=3, metavar="COUNT",
+                       help="Read passes to run after the write pass (default: 3)")
+    run_group.add_argument("--timeout", type=int, default=1800, metavar="SECONDS",
+                       help="Timeout for each tframetest invocation "
+                            "(default: 1800 = 30 minutes)")
+    run_group.add_argument("--binary", metavar="PATH",
+                       help="tframetest binary to run instead of auto-discovery "
+                            "(env: TFBENCH_BINARY)")
+
+    flush_group = parser.add_argument_group(
+        "upload flush (run mode)",
+        textwrap.fill(
+            "On a write-back cloud filesystem, the write speed above only "
+            "measures ingest into the local cache. Supply --flush-cmd to also "
+            "measure the true end-to-end rate: tfbench polls the command until "
+            "the filesystem's upload queue drains to zero.", width=76))
+    flush_group.add_argument("--flush-cmd", metavar="CMD",
+                       help="Shell command polled after the write test; its "
+                            "last stdout line must be the number of bytes "
+                            "still queued for upload (bare bytes or with a "
+                            "unit: '0', '12345', '4.51MiB', '1.2 GB'). "
+                            "Flush measurement only runs when this is given")
+    flush_group.add_argument("--flush-timeout", type=int, default=600, metavar="SECONDS",
+                       help="Max seconds to wait for the upload queue to drain "
+                            "(default: 600 = 10 minutes); independent of --timeout")
+
+    analysis_group = parser.add_argument_group("analysis and output")
+    analysis_group.add_argument("--link-speed", type=float, metavar="MBPS",
+                       help="Network link speed in Mbps (megabits/second, not "
+                            "MiB/s). Reads/writes exceeding what the link could "
+                            "physically deliver are flagged as served from a "
+                            "local cache. The 10 GiB/s RAM-cache check (reads "
+                            "only) always runs too and takes precedence when "
+                            "both apply")
+    analysis_group.add_argument("--csv", metavar="FILE",
+                       help="Export results (including flush metrics when "
+                            "measured) to a CSV file")
+
+    parse_group = parser.add_argument_group("parse mode")
+    parse_group.add_argument("--parse", metavar="FILE",
+                       help="Visualize existing tframetest output from FILE "
+                            "instead of running tests (mutually exclusive with "
+                            "target_dir)")
 
     args = parser.parse_args()
 
     console = Console(force_terminal=True)
+
+    if args.version:
+        binary = args.binary or os.environ.get("TFBENCH_BINARY") or \
+            BenchmarkRunner(console, allow_prompt=False).tframetest_cmd
+        console.print(f"tframetest binary: [cyan]{binary}[/cyan]")
+        try:
+            proc = subprocess.run([binary, "-V"], capture_output=True,
+                                  text=True, timeout=10)
+            console.print(proc.stdout.strip() or proc.stderr.strip())
+            return proc.returncode
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as e:
+            console.print(f"[bold red]Error:[/bold red] could not run binary: {e}")
+            return 1
+
+    if args.parse and args.target_dir:
+        console.print("[bold red]Error:[/bold red] --parse and target_dir are "
+                      "mutually exclusive — parse mode reads results from the "
+                      "file and never touches a target directory")
+        return 1
 
     if args.flush_timeout <= 0:
         console.print(f"[bold red]Error:[/bold red] --flush-timeout must be a positive number of seconds, got {args.flush_timeout}")
@@ -1208,7 +1186,7 @@ Examples:
             args.target_dir,
             args.reads,
             args.timeout,
-            flush=not args.no_flush,
+            flush_cmd=args.flush_cmd,
             flush_timeout=args.flush_timeout
         )
     except KeyboardInterrupt:
