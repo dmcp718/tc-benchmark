@@ -1061,7 +1061,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run full benchmark suite (1 write + 2 reads)
+  # Run full benchmark suite (1 write + 3 reads by default)
   uv run tfbench.py -w 4k -n 500 -t 8 /media/tc-mngr/tftest
 
   # Run with CSV export

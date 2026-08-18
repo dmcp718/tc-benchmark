@@ -16,7 +16,7 @@ Static binary packages of [tframetest](https://github.com/tuxera/tframetest), a 
 | **macOS ARM64**  | `tframetest-3025.12.0-macos-arm64.pkg`       | 17K  | macOS 10.13+, Apple Silicon (M1/M2/M3) |
 | Debian/Ubuntu    | `tframetest_3025.12.0_amd64.deb`             | 322K | Debian, Ubuntu, derivatives        |
 | EL9 RPM          | `tframetest-3025.12.0-1.el9.x86_64.rpm`      | 354K | RHEL 9, Rocky Linux 9, AlmaLinux 9 |
-| Windows 64-bit   | `tframetest-3025.12.0-win64.zip`             | 219K | Windows 10/11, Server 2016+        |
+| Windows 64-bit   | `tframetest-3025.12.0-win64.zip`             | 53K  | Windows 10/11, Server 2016+        |
 
 ## Installation
 
@@ -184,7 +184,7 @@ This repository includes **tfbench**, a TUI (Terminal User Interface) tool that 
 - 🎨 **Rich TUI visualizations** - Bar charts, tables, and sparklines
 - 📊 **Comprehensive metrics** - Throughput, latency, FPS comparisons
 - 🔍 **Performance insights** - Automatic calculation of cache speedup and ratios
-- 🚀 **Automated testing** - Runs full benchmark suite (1 write + 2 reads)
+- 🚀 **Automated testing** - Runs full benchmark suite (1 write + N reads, default 3)
 - ⚡ **Real-time progress** - Live progress indicators during test execution
 - 💾 **CSV export** - Export results for analysis in Excel/pandas
 
@@ -341,7 +341,8 @@ These packages were built with:
 - Compiler: GCC (EL9)
 - LDFLAGS: `-static -pthread`
 - Optimization: `-O2`
-- Build Date: October 5, 2025
+- Build Dates: Linux packages October 5, 2025; Windows zip February 22, 2026
+  (unpatched — see TODO below); macOS binary August 18, 2026 (both patches applied)
 
 Patches are kept in `patches/` at the repo root:
 
