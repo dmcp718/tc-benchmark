@@ -34,3 +34,8 @@ test_results.csv
 build/
 dist/
 *.egg-info/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
