@@ -185,7 +185,7 @@ This repository includes **tfbench**, a TUI (Terminal User Interface) tool that 
 ### Portable install (no clone required)
 
 You don't need to clone this repo to use tfbench. Grab a per-platform bundle from
-[GitHub Releases](https://github.com/dmcp718/tc-benchmark/releases), which pairs `tfbench.py`
+[GitHub Releases](https://github.com/dmcp718/tf-benchmark/releases), which pairs `tfbench.py`
 with the matching `tframetest` binary so `uv run` needs nothing else:
 
 ```bash

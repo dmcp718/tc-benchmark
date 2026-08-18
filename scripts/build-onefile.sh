@@ -37,16 +37,22 @@
 #   (requires an unpatched-or-better win64 tframetest.exe -- see tcb-0is
 #   for the still-open item to rebuild it with the patches applied.)
 #
-# macOS Gatekeeper note: an ad-hoc-signed onefile binary downloaded through
-# a browser gets the com.apple.quarantine xattr, which Gatekeeper will
-# block on first run ("cannot be opened because the developer cannot be
-# verified"). Two ways around it:
-#   - Distribute via curl/scp instead of a browser download (neither sets
-#     the quarantine attribute).
-#   - If it was downloaded via browser: `xattr -d com.apple.quarantine <path>`
-#     before running.
-# A properly signed+notarized binary (Apple Developer ID) avoids this
-# entirely but requires paid enrollment and is out of scope here.
+# macOS signing & notarization: by default the build is ad-hoc signed,
+# which Gatekeeper blocks when the binary was downloaded through a browser
+# (com.apple.quarantine). For release builds, set:
+#   CODESIGN_IDENTITY="Developer ID Application: ..."   # real signature
+#   NOTARIZE=1                                          # submit to Apple
+#   NOTARY_PROFILE=notarytool   # keychain profile from `xcrun notarytool
+#                               # store-credentials` (default: notarytool)
+# With CODESIGN_IDENTITY set, the staged tframetest binary and the final
+# onefile are signed with the hardened runtime and the entitlements in
+# scripts/entitlements.plist (required by PyInstaller's bootloader). With
+# NOTARIZE=1 the result is zipped and submitted via `notarytool --wait`,
+# then assessed with spctl. Note a bare Mach-O executable cannot be
+# STAPLED — Gatekeeper fetches the notarization ticket online on first
+# run, which is fine for normal use.
+# Ad-hoc fallback (no CODESIGN_IDENTITY): distribute via curl/scp, or
+# `xattr -d com.apple.quarantine <path>` after a browser download.
 
 set -euo pipefail
 
@@ -98,6 +104,23 @@ fi
 cp "$BINARY_SRC" "$STAGED_BINARY"
 chmod 755 "$STAGED_BINARY"
 
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+NOTARIZE="${NOTARIZE:-0}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-notarytool}"
+ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
+
+if [[ "$NOTARIZE" == "1" && -z "$CODESIGN_IDENTITY" ]]; then
+    echo "error: NOTARIZE=1 requires CODESIGN_IDENTITY (a Developer ID Application identity)" >&2
+    exit 1
+fi
+
+# Sign the staged tframetest copy with a real identity when given -- the
+# repo's checked-in binary stays ad-hoc so it remains bit-reproducible
+# from upstream + patches; only this staged copy gains a signature.
+if [[ "$OS" == "Darwin" && -n "$CODESIGN_IDENTITY" ]]; then
+    codesign -f --timestamp --options runtime -s "$CODESIGN_IDENTITY" "$STAGED_BINARY"
+fi
+
 OUT_NAME="tfbench-${VERSION}-${PLATFORM_TAG}"
 
 mkdir -p "$DIST_DIR"
@@ -131,9 +154,34 @@ fi
 OUT_PATH="$DIST_DIR/$OUT_NAME"
 
 if [[ "$OS" == "Darwin" ]]; then
-    echo "Ad-hoc codesigning $OUT_PATH ..."
-    codesign -s - --force "$OUT_PATH"
+    if [[ -n "$CODESIGN_IDENTITY" ]]; then
+        echo "Codesigning $OUT_PATH with hardened runtime ($CODESIGN_IDENTITY) ..."
+        codesign -f --timestamp --options runtime \
+            --entitlements "$ENTITLEMENTS" -s "$CODESIGN_IDENTITY" "$OUT_PATH"
+    else
+        echo "Ad-hoc codesigning $OUT_PATH ..."
+        codesign -s - --force "$OUT_PATH"
+    fi
 fi
 
 chmod 755 "$OUT_PATH"
 echo "built: dist/$OUT_NAME"
+
+if [[ "$OS" == "Darwin" && "$NOTARIZE" == "1" ]]; then
+    NOTARY_ZIP="$STAGE_DIR/$OUT_NAME.zip"
+    echo "Submitting to Apple notary service (profile: $NOTARY_PROFILE) ..."
+    ditto -c -k "$OUT_PATH" "$NOTARY_ZIP"
+    SUBMIT_OUT="$(xcrun notarytool submit "$NOTARY_ZIP" \
+        --keychain-profile "$NOTARY_PROFILE" --wait 2>&1 | tee /dev/stderr)"
+    if ! grep -q "status: Accepted" <<< "$SUBMIT_OUT"; then
+        echo "error: notarization was not Accepted -- fetch the log with" >&2
+        echo "  xcrun notarytool log <submission-id> --keychain-profile $NOTARY_PROFILE" >&2
+        exit 1
+    fi
+    codesign --verify --strict "$OUT_PATH"
+    # Note: a bare Mach-O can't be stapled, and `spctl -t execute` reports
+    # "does not seem to be an app" for CLI binaries even when notarized --
+    # notarytool's Accepted status is the authoritative gate here. The
+    # user-facing proof is that a quarantined copy executes cleanly.
+    echo "notarized (Accepted) and signature verified: dist/$OUT_NAME"
+fi

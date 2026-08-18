@@ -15,7 +15,7 @@ filesystems.
 All work below is committed and pushed to **both** remotes:
 
 - `origin` → git@bitbucket.org:lucidlink/tc-benchmark.git (master)
-- `github` → https://github.com/dmcp718/tc-benchmark (master, force-unified with
+- `github` → https://github.com/dmcp718/tf-benchmark (master, force-unified with
   Bitbucket history on 2026-08-18; the old GitHub fork's unique AL2023 docs were
   ported first, its other commits were superseded)
 
@@ -128,12 +128,26 @@ full verification evidence is in each bead's close reason (`bd show <id>`).
   present in `python:3.12-slim` either). Lesson: always build onefile
   executables in the *oldest* glibc environment you intend to support, not
   whatever has Python preinstalled.
-- **Draft GitHub release**: `v1.0.0` on `dmcp718/tc-benchmark`, draft (not
-  published — that's the user's call). All 4 artifacts attached: both zips and
-  both onefile binaries.
-  https://github.com/dmcp718/tc-benchmark/releases/tag/untagged-fea845eca13c007b0a1f
-  (the `untagged-...` slug is normal for an unpublished draft; `tagName` is
-  stored as `v1.0.0` and becomes the real tag on publish).
+- **GitHub release**: `v1.0.0` on `dmcp718/tf-benchmark` — **PUBLISHED**
+  2026-08-18 (user published it; the GitHub repo was also renamed
+  tc-benchmark → tf-benchmark that day; old URLs redirect; Bitbucket keeps
+  the tc-benchmark name). Tag `v1.0.0` = commit 8b9e12c, the exact revision
+  all assets were built from. Five assets: both zips, both onefile
+  executables, COPYING.
+  https://github.com/dmcp718/tf-benchmark/releases/tag/v1.0.0
+- **macOS signing/notarization (2026-08-18)**: both macOS assets are
+  Developer ID-signed (identity "DAVID MCKEEN PHILLIPS (53R5U5WLK4)") and
+  notarized (Apple status: Accepted × 2) — browser downloads run without
+  quarantine workarounds. Wired into both scripts behind
+  `CODESIGN_IDENTITY=... NOTARIZE=1` (notary keychain profile: `notarytool`,
+  entitlements in scripts/entitlements.plist — PyInstaller needs
+  allow-unsigned-executable-memory + disable-library-validation under the
+  hardened runtime). The checked-in tframetest-macos stays ad-hoc for
+  bit-reproducibility; only the STAGED copies get the real signature.
+  Gotchas: bare Mach-O binaries can't be stapled (Gatekeeper fetches the
+  ticket online on first run), and `spctl -t execute` reports "does not
+  seem to be an app" for notarized CLI binaries — notarytool's Accepted is
+  the authoritative gate; verify by exec'ing a quarantined copy.
 - **README**: added "Portable install (no clone required)" and "Binary
   Discovery" sections under the tfbench heading.
 - **.gitignore**: added `*.spec` (PyInstaller-generated specs); `build/` and

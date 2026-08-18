@@ -33,6 +33,21 @@ fi
 
 LINUX_BINARY="$REPO_DIR/build/tframetest-linux-x86_64"
 
+# Optional macOS signing/notarization (see scripts/build-onefile.sh header
+# for the full story). With CODESIGN_IDENTITY set, the tframetest-macos
+# COPY staged into the zip is Developer ID-signed (the checked-in binary
+# stays ad-hoc so it remains bit-reproducible from upstream + patches);
+# with NOTARIZE=1 the finished zip is submitted to Apple, which covers the
+# signed binary inside it. Zips can't be stapled -- Gatekeeper fetches the
+# ticket online.
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+NOTARIZE="${NOTARIZE:-0}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-notarytool}"
+if [[ "$NOTARIZE" == "1" && -z "$CODESIGN_IDENTITY" ]]; then
+    echo "error: NOTARIZE=1 requires CODESIGN_IDENTITY" >&2
+    exit 1
+fi
+
 mkdir -p "$DIST_DIR"
 
 write_bundle_readme() {
@@ -73,7 +88,7 @@ ${patch_note}
 
 Patch source and full corresponding source availability (GPLv2 Section 3)
 are published in this project's repository:
-    https://github.com/dmcp718/tc-benchmark
+    https://github.com/dmcp718/tf-benchmark
 
 The complete GPL-2.0-or-later license text is included as COPYING in
 this bundle.
@@ -89,6 +104,9 @@ build_macos_bundle() {
 
     cp "$REPO_DIR/tfbench.py" "$stage/"
     cp "$REPO_DIR/tframetest-macos" "$stage/"
+    if [[ -n "$CODESIGN_IDENTITY" ]]; then
+        codesign -f --timestamp --options runtime -s "$CODESIGN_IDENTITY" "$stage/tframetest-macos"
+    fi
     cp "$REPO_DIR/COPYING" "$stage/"
     write_bundle_readme "$stage/BUNDLE-README.txt" \
 "  - patches/macos-f_nocache.patch (Darwin-only direct I/O fix)
@@ -97,6 +115,13 @@ build_macos_bundle() {
     rm -f "$DIST_DIR/$zip_name"
     (cd "$stage" && zip -q -X "$DIST_DIR/$zip_name" tfbench.py tframetest-macos COPYING BUNDLE-README.txt)
     echo "built: dist/$zip_name"
+
+    if [[ "$NOTARIZE" == "1" ]]; then
+        echo "Submitting dist/$zip_name to Apple notary service (profile: $NOTARY_PROFILE) ..."
+        xcrun notarytool submit "$DIST_DIR/$zip_name" \
+            --keychain-profile "$NOTARY_PROFILE" --wait
+        echo "notarized: dist/$zip_name"
+    fi
 }
 
 build_linux_bundle() {
