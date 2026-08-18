@@ -321,6 +321,25 @@ These packages were built with:
 - Optimization: `-O2`
 - Build Date: October 5, 2025
 
+### macOS Direct I/O Patch (F_NOCACHE)
+
+Upstream tframetest opens all test files with `PLATFORM_OPEN_DIRECT`, which maps
+to `O_DIRECT` on Linux and `FILE_FLAG_NO_BUFFERING` on Windows — but is silently
+a no-op on macOS (`/* Faking O_DIRECT for now... */` in `platform.c`), so reads
+were served from the unified buffer cache and could report RAM speeds instead of
+storage speeds.
+
+The macOS binary in this repository is built with
+`macos-installer/macos-f_nocache.patch` applied, which implements direct I/O on
+Darwin via `fcntl(fd, F_NOCACHE, 1)` in `generic_open()`. To reproduce the build:
+
+```bash
+git clone https://github.com/tuxera/tframetest.git
+cd tframetest
+git apply ../macos-installer/macos-f_nocache.patch
+make release   # output: build/tframetest (arm64)
+```
+
 ## Uninstallation
 
 ### macOS

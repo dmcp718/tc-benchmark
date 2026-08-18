@@ -1,0 +1,20 @@
+diff --git a/platform.c b/platform.c
+index 672d24d..9a7bcc1 100644
+--- a/platform.c
++++ b/platform.c
+@@ -191,8 +191,14 @@ static inline platform_handle_t
+ generic_open(const char *fname, platform_open_flags_t flags, int mode)
+ {
+ 	int oflags = generic_resolve_flags(flags);
++	platform_handle_t f = open(fname, oflags, mode);
+ 
+-	return open(fname, oflags, mode);
++#if defined(__APPLE__)
++	/* macOS has no O_DIRECT; F_NOCACHE is the Darwin equivalent */
++	if (f >= 0 && (flags & PLATFORM_OPEN_DIRECT))
++		(void)fcntl(f, F_NOCACHE, 1);
++#endif
++	return f;
+ }
+ 
+ static inline int generic_close(platform_handle_t handle)
