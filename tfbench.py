@@ -5,6 +5,14 @@ tfbench - TUI visualizer for tframetest benchmark results
 A tool to run and visualize tframetest benchmarks with rich TUI components.
 """
 
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["rich>=13.7.0"]
+# ///
+# NOTE: keep the header above in sync with pyproject.toml (and the --with pin
+# in scripts/build-onefile.sh). With this header present, `uv run tfbench.py`
+# uses IT — not pyproject.toml — even inside the repo.
+
 import argparse
 import csv
 import os
@@ -333,50 +341,66 @@ class BenchmarkRunner:
         self.tframetest_cmd = binary_override or self._find_tframetest(allow_prompt)
 
     def _find_tframetest(self, allow_prompt: bool = True) -> str:
-        """Find the appropriate tframetest binary for the current platform"""
-        script_dir = Path(__file__).parent
+        """Find the appropriate tframetest binary for the current platform.
 
-        # On macOS, check for system-installed binary first
-        if platform.system() == "Darwin":
-            # Check if tframetest is installed in /usr/local/bin (via installer)
+        Discovery order (bundled binary wins so a portable zip/onefile
+        always runs its own copy, never a stale system install):
+          1. script/bundle dir platform binary (Darwin: tframetest-macos or
+             plain tframetest; Windows: tframetest.exe; else: tframetest)
+          2. /usr/local/bin/tframetest (Darwin only, the installer target)
+          3. PATH
+          4. macOS installer prompt, if a bundled .pkg is available
+          5. bare "tframetest" (subprocess will raise if truly absent)
+
+        --binary / TFBENCH_BINARY short-circuit all of this in __init__
+        and are not re-checked here.
+        """
+        # Under PyInstaller, bundled files are extracted to sys._MEIPASS,
+        # not alongside this script.
+        meipass = getattr(sys, "_MEIPASS", None)
+        script_dir = Path(meipass) if meipass else Path(__file__).parent
+        system = platform.system()
+
+        # 1. Bundled binary next to the script (or inside the frozen bundle).
+        # Require the exec bit: a bundle copy that lost it (GUI unarchiver,
+        # exFAT/SMB copy, noexec mount) must fall through to the system
+        # locations below instead of failing with EACCES at run time.
+        if system == "Darwin":
+            for name in ("tframetest-macos", "tframetest"):
+                candidate = script_dir / name
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate)
+        elif system == "Windows":
+            candidate = script_dir / "tframetest.exe"
+            if candidate.is_file():
+                return str(candidate)
+        else:
+            candidate = script_dir / "tframetest"
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+
+        # 2. System-installed binary (macOS installer target)
+        if system == "Darwin":
             system_binary = Path("/usr/local/bin/tframetest")
             if system_binary.exists():
                 return str(system_binary)
 
-            # Check PATH
-            which_result = shutil.which("tframetest")
-            if which_result:
-                return which_result
+        # 3. PATH
+        which_result = shutil.which("tframetest")
+        if which_result:
+            return which_result
 
-            # Not installed - check if installer is available
+        # 4. Offer to run the bundled macOS installer, if present
+        if system == "Darwin":
             installer_pkg = script_dir / "macos-installer" / "build" / "tframetest-3025.12.0-macos-arm64.pkg"
             if installer_pkg.exists() and allow_prompt:
                 self._prompt_install_macos(installer_pkg)
-                # After prompting, check again if user installed
+                # After prompting, check again if the user installed it
+                system_binary = Path("/usr/local/bin/tframetest")
                 if system_binary.exists():
                     return str(system_binary)
 
-            # Fall back to local binary
-            macos_binary = script_dir / "tframetest-macos"
-            if macos_binary.exists():
-                return str(macos_binary)
-
-        # On Windows, check for tframetest.exe in script directory or PATH
-        if platform.system() == "Windows":
-            local_exe = script_dir / "tframetest.exe"
-            if local_exe.exists():
-                return str(local_exe)
-
-            which_result = shutil.which("tframetest")
-            if which_result:
-                return which_result
-
-        # Check for local binary
-        local_binary = script_dir / "tframetest"
-        if local_binary.exists() and local_binary.is_file():
-            return str(local_binary)
-
-        # Fall back to PATH
+        # 5. Fall back to bare name; subprocess will raise FileNotFoundError
         return "tframetest"
 
     def _prompt_install_macos(self, installer_path: Path) -> None:

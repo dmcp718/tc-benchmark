@@ -35,6 +35,10 @@ build/
 dist/
 *.egg-info/
 
+# PyInstaller (onefile builds) - generated specs land in build/ (already
+# ignored); anchor here so a curated spec in scripts/ could still be tracked
+/build/*.spec
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db

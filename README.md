@@ -42,10 +42,11 @@ cd macos-installer
 The installer places `tframetest` in `/usr/local/bin/` for system-wide access.
 
 **Auto-Installation via tfbench.py:**
-When running `tfbench.py` on macOS without tframetest installed, it will automatically:
-- Detect if the installer package is available
-- Prompt you to install it interactively
-- Handle the installation with a single confirmation
+If tfbench.py finds no binary next to itself (see "Binary Discovery" below), no
+system install, and nothing on PATH — but a built installer package is present
+at `macos-installer/build/` — it offers to run the installer interactively.
+In a normal checkout of this repo this never triggers, because the repo ships
+`tframetest-macos` alongside tfbench.py and that is found first.
 
 ### Debian/Ubuntu
 ```bash
@@ -179,7 +180,34 @@ This repository includes **tfbench**, a TUI (Terminal User Interface) tool that 
 
 **⚠️ Note:** `tfbench.py` is for **Linux/macOS only**. Windows users can use tframetest.exe directly from the command line.
 
-**🍎 macOS Users:** tfbench.py includes intelligent installer detection. If tframetest is not installed, it will automatically detect the installer package and prompt you to install it interactively.
+**🍎 macOS Users:** in this repo (and in the release bundles) tfbench.py runs the `tframetest-macos` binary sitting next to it — no installation needed. See "Binary Discovery" below for the full lookup order.
+
+### Portable install (no clone required)
+
+You don't need to clone this repo to use tfbench. Grab a per-platform bundle from
+[GitHub Releases](https://github.com/dmcp718/tc-benchmark/releases), which pairs `tfbench.py`
+with the matching `tframetest` binary so `uv run` needs nothing else:
+
+```bash
+# 1. Install uv (one-time), if you don't have it already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Download and unzip the bundle for your platform, then run
+unzip tfbench-1.0.0-macos-arm64.zip -d tfbench && cd tfbench
+uv run tfbench.py --version
+uv run tfbench.py -w 4k -n 500 -t 8 /path/to/target
+```
+
+`tfbench.py` carries a [PEP 723](https://peps.python.org/pep-0723/) inline metadata header, so
+`uv run` resolves its one dependency (`rich`) automatically — no `pyproject.toml` or virtualenv
+needed. See "Binary Discovery" below for why the binary shipped in the bundle always wins over
+any system-installed `tframetest`.
+
+The releases also carry single-file executables (`tfbench-<version>-<platform>`) that need
+neither uv nor Python. Note the **Linux single-file executable requires glibc >= 2.33**
+(RHEL/Rocky 9+, Ubuntu 22.04+, Debian 12+) because of the CPython runtime embedded at build
+time; on older distros use the zip instead — its `tframetest` binary is fully static and uv
+brings its own Python, so the zip has no glibc floor.
 
 ### Features
 
@@ -291,6 +319,28 @@ parse mode:
                            running tests (mutually exclusive with target_dir);
                            only -t, --link-speed, and --csv apply
 ```
+
+### Binary Discovery
+
+`tfbench.py` picks a `tframetest` binary to run using this order, and stops at the
+first match:
+
+1. **`--binary PATH`** or the **`TFBENCH_BINARY`** environment variable, if given —
+   an explicit override always wins and skips everything below.
+2. **The bundle's own binary**, next to `tfbench.py` (or, in a PyInstaller onefile
+   build, extracted alongside it at runtime): `tframetest-macos` or `tframetest` on
+   macOS, `tframetest.exe` on Windows, `tframetest` elsewhere.
+3. **`/usr/local/bin/tframetest`** (macOS only — the installer's target path).
+4. Whatever `tframetest` resolves to on **`PATH`**.
+5. On macOS, if a bundled installer `.pkg` is present, an interactive **prompt to
+   install** it, then re-checking `/usr/local/bin`.
+6. A bare `"tframetest"` fallback, which fails immediately if none of the above
+   found anything.
+
+This order is intentionally bundle-first: a portable zip or onefile executable
+must always run the copy of `tframetest` it shipped with, never a stale or
+differently-patched system install shadowing it. Use `--version` to see exactly
+which binary and version would be used before running a real benchmark.
 
 ### Output Example
 

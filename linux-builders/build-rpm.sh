@@ -1,30 +1,32 @@
 #!/bin/bash
 #
-# Build tframetest .rpm package in an AlmaLinux 9 Docker container
+# Build tframetest .rpm package in an AlmaLinux 9 container
 #
 # Usage: ./build-rpm.sh <version>
 # Example: ./build-rpm.sh 3025.12.0
 #
-# Requirements: Docker
+# Requirements: Docker or Podman (set CONTAINER_ENGINE=podman to prefer
+# Podman; defaults to docker)
 # Output: ../tframetest-<version>-1.el9.x86_64.rpm
 
 set -euo pipefail
 
+CONTAINER_ENGINE="${CONTAINER_ENGINE:-docker}"
 VERSION="${1:?Usage: $0 <version>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 OUTPUT_FILE="tframetest-${VERSION}-1.el9.x86_64.rpm"
 
-echo "=== Building tframetest ${VERSION} .rpm package ==="
+echo "=== Building tframetest ${VERSION} .rpm package (using $CONTAINER_ENGINE) ==="
 echo ""
 
-# Build the Docker image
-echo "Building Docker image..."
-docker build -t tframetest-rpm-builder -f "$SCRIPT_DIR/Dockerfile.rpm" "$SCRIPT_DIR"
+# Build the image
+echo "Building $CONTAINER_ENGINE image..."
+"$CONTAINER_ENGINE" build -t tframetest-rpm-builder -f "$SCRIPT_DIR/Dockerfile.rpm" "$SCRIPT_DIR"
 
 # Run the build inside the container
 echo "Building tframetest and packaging .rpm..."
-docker run --rm -v "$REPO_DIR:/output" tframetest-rpm-builder bash -c "
+"$CONTAINER_ENGINE" run --rm -v "$REPO_DIR:/output" tframetest-rpm-builder bash -c "
     set -euo pipefail
 
     VERSION='${VERSION}'

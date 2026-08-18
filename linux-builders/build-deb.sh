@@ -1,30 +1,32 @@
 #!/bin/bash
 #
-# Build tframetest .deb package in an Ubuntu 22.04 Docker container
+# Build tframetest .deb package in an Ubuntu 22.04 container
 #
 # Usage: ./build-deb.sh <version>
 # Example: ./build-deb.sh 3025.12.0
 #
-# Requirements: Docker
+# Requirements: Docker or Podman (set CONTAINER_ENGINE=podman to prefer
+# Podman; defaults to docker)
 # Output: ../tframetest_<version>_amd64.deb
 
 set -euo pipefail
 
+CONTAINER_ENGINE="${CONTAINER_ENGINE:-docker}"
 VERSION="${1:?Usage: $0 <version>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 OUTPUT_FILE="tframetest_${VERSION}_amd64.deb"
 
-echo "=== Building tframetest ${VERSION} .deb package ==="
+echo "=== Building tframetest ${VERSION} .deb package (using $CONTAINER_ENGINE) ==="
 echo ""
 
-# Build the Docker image
-echo "Building Docker image..."
-docker build -t tframetest-deb-builder -f "$SCRIPT_DIR/Dockerfile.deb" "$SCRIPT_DIR"
+# Build the image
+echo "Building $CONTAINER_ENGINE image..."
+"$CONTAINER_ENGINE" build -t tframetest-deb-builder -f "$SCRIPT_DIR/Dockerfile.deb" "$SCRIPT_DIR"
 
 # Run the build inside the container
 echo "Building tframetest and packaging .deb..."
-docker run --rm -v "$REPO_DIR:/output" tframetest-deb-builder bash -c "
+"$CONTAINER_ENGINE" run --rm -v "$REPO_DIR:/output" tframetest-deb-builder bash -c "
     set -euo pipefail
 
     VERSION='${VERSION}'
